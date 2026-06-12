@@ -259,6 +259,24 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(agent_policy.read_text(encoding="utf-8"), "# Custom Rules\n\nKeep this file.\n")
             self.assertTrue((project / bootstrap.CONFIG_NAME).is_file())
 
+            lock = json.loads((project / bootstrap.LOCK_NAME).read_text(encoding="utf-8"))
+            agent_entry = next(item for item in lock["managedFiles"] if item["path"] == "AGENTS.md")
+            self.assertTrue(agent_entry["adopted"])
+
+            update_code, update_payload = self.run_cli(
+                [
+                    "update",
+                    "--project",
+                    str(project),
+                    *self.source_args(),
+                    "--apply",
+                ]
+            )
+            self.assertEqual(update_code, 0)
+            self.assertTrue(update_payload["ok"])
+            self.assertEqual(agent_policy.read_text(encoding="utf-8"), "# Custom Rules\n\nKeep this file.\n")
+            self.assertGreaterEqual(update_payload["summary"].get("adopted", 0), 1)
+
             strict_code, strict_payload = self.run_cli(["doctor", "--project", str(project), "--strict"])
             self.assertEqual(strict_code, 0)
             self.assertTrue(strict_payload["ok"])

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6 - Persistent Adopted Workflow Files
+
+- Lock entries now mark adopted project-local files explicitly, so later
+  updates preserve them without requiring `--adopt-existing` every time.
+- Bootstrap apply/update behavior now treats adopted workflow files as managed
+  local files instead of silently reverting them to source templates.
+
 ## 0.1.5 - Adopt Existing Workflow Files
 
 - Added `--adopt-existing` to bootstrap install/update flows. Existing

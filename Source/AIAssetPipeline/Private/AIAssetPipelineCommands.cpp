@@ -364,7 +364,7 @@ FString HandleStatus(TSharedPtr<FJsonObject> Params)
 {
 	TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
 	Data->SetStringField(TEXT("plugin"), TEXT("AIAssetPipeline"));
-	Data->SetStringField(TEXT("version"), TEXT("0.1.5"));
+	Data->SetStringField(TEXT("version"), TEXT("0.1.6"));
 	Data->SetStringField(TEXT("plugin_dir"), FAIAssetPipelineModule::GetPluginDir());
 	Data->SetStringField(TEXT("python_dir"), FAIAssetPipelineModule::GetPythonDir());
 	Data->SetStringField(TEXT("schemas_dir"), FAIAssetPipelineModule::GetSchemasDir());

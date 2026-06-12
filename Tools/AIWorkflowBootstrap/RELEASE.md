@@ -65,6 +65,10 @@ python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherP
 python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --apply --adopt-existing
 ```
 
+The first adopted update records local files as `adopted` in
+`Tools/AIWorkflowBootstrap/state/lock.json`; later ordinary updates preserve
+those local files unless `--force` is passed.
+
 Apply only after the dry-run has no unexpected conflicts:
 
 ```powershell

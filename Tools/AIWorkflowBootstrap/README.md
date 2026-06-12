@@ -103,7 +103,8 @@ Use `-Mode install` or `-Mode update` on Windows, and `--mode install` or
 For an existing project that already has customized workflow docs, `AGENTS.md`,
 or validators, run bootstrap with `--adopt-existing`. Existing unmanaged files
 are preserved and recorded in the lock while missing managed files and state are
-installed.
+installed. Adopted entries are marked in the lock and remain project-local on
+later updates unless you explicitly pass `--force`.
 
 From this repo:
 

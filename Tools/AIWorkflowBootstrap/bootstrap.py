@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.5"
+TOOL_VERSION = "0.1.6"
 STATE_DIR = Path("Tools") / "AIWorkflowBootstrap" / "state"
 CONFIG_NAME = (STATE_DIR / "project.json").as_posix()
 LOCK_NAME = (STATE_DIR / "lock.json").as_posix()
@@ -481,6 +481,16 @@ def locked_hashes(lock_data: dict[str, Any] | None) -> dict[str, str]:
     return hashes
 
 
+def locked_file_records(lock_data: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not lock_data:
+        return {}
+    records: dict[str, dict[str, Any]] = {}
+    for item in lock_data.get("managedFiles", []):
+        if isinstance(item, dict) and item.get("path"):
+            records[str(item["path"])] = item
+    return records
+
+
 def managed_hash_matches(hashes: dict[str, str], relative_path: str, path: Path) -> bool:
     expected = hashes.get(relative_path)
     return bool(expected and path.exists() and sha256_file(path) == expected)
@@ -490,7 +500,7 @@ def classify_file_intent(
     intent: FileIntent,
     project_root: Path,
     source_root: Path,
-    managed_hashes: dict[str, str],
+    managed_records: dict[str, dict[str, Any]],
     force: bool,
     adopt_existing: bool,
 ) -> dict[str, Any]:
@@ -520,7 +530,12 @@ def classify_file_intent(
     if force:
         op["status"] = "overwrite"
         return op
-    if managed_hashes.get(rel_destination) == destination_hash:
+    managed_record = managed_records.get(rel_destination)
+    if managed_record and managed_record.get("sha256") == destination_hash and managed_record.get("adopted"):
+        op["status"] = "adopted"
+        op["message"] = "Existing adopted destination is managed by the lock and left unchanged."
+        return op
+    if managed_record and managed_record.get("sha256") == destination_hash:
         op["status"] = "planned"
         return op
     if adopt_existing:
@@ -589,9 +604,10 @@ def build_plan(
     config = config_for(profile, plugins)
     lock_data = load_lock(project_root)
     hashes = locked_hashes(lock_data)
+    records = locked_file_records(lock_data)
     intents = desired_file_intents(layout, project_root, config, plugins)
 
-    operations = [classify_file_intent(intent, project_root, layout.common_root, hashes, force, adopt_existing) for intent in intents]
+    operations = [classify_file_intent(intent, project_root, layout.common_root, records, force, adopt_existing) for intent in intents]
 
     config_path = canonical_config_path(project_root)
     current_config_path = config_path_for_read(project_root)
@@ -776,20 +792,27 @@ def make_lock(
     profile: str,
     plugins: list[str],
     intents: list[FileIntent],
+    managed_records: dict[str, dict[str, Any]],
+    adopt_existing: bool,
 ) -> dict[str, Any]:
     managed_files: list[dict[str, Any]] = []
     for intent in intents:
         destination = intent.destination
         if not destination.exists():
             continue
-        managed_files.append(
-            {
-                "path": relpath(destination, project_root),
-                "sha256": sha256_file(destination),
-                "source": relpath(intent.source, layout.common_root),
-                "kind": intent.kind,
-            }
-        )
+        relative_destination = relpath(destination, project_root)
+        destination_hash = sha256_file(destination)
+        source_hash = sha256_file(intent.source)
+        previous_record = managed_records.get(relative_destination, {})
+        entry: dict[str, Any] = {
+            "path": relative_destination,
+            "sha256": destination_hash,
+            "source": relpath(intent.source, layout.common_root),
+            "kind": intent.kind,
+        }
+        if destination_hash != source_hash and (adopt_existing or previous_record.get("adopted")):
+            entry["adopted"] = True
+        managed_files.append(entry)
 
     config_path = project_root / CONFIG_NAME
     if config_path.exists():
@@ -858,13 +881,22 @@ def apply_plan(
     layout: SourceLayout,
     profile: str,
     plugins: list[str],
+    force: bool,
     adopt_existing: bool,
 ) -> None:
+    managed_records = locked_file_records(load_lock(project_root))
     for intent in intents:
         if same_path(intent.source, intent.destination):
             continue
-        if adopt_existing and intent.destination.exists() and sha256_file(intent.source) != sha256_file(intent.destination):
-            continue
+        if intent.destination.exists():
+            relative_destination = relpath(intent.destination, project_root)
+            destination_hash = sha256_file(intent.destination)
+            source_hash = sha256_file(intent.source)
+            managed_record = managed_records.get(relative_destination, {})
+            if not force and managed_record.get("adopted") and managed_record.get("sha256") == destination_hash and source_hash != destination_hash:
+                continue
+            if adopt_existing and source_hash != destination_hash:
+                continue
         intent.destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(intent.source, intent.destination)
 
@@ -873,7 +905,7 @@ def apply_plan(
     state_gitignore.parent.mkdir(parents=True, exist_ok=True)
     state_gitignore.write_text(STATE_GITIGNORE_CONTENT, encoding="utf-8")
     write_json(uproject_path, uproject_data)
-    lock_payload = make_lock(project_root, layout, profile, plugins, intents)
+    lock_payload = make_lock(project_root, layout, profile, plugins, intents, managed_records, adopt_existing)
     write_json(canonical_lock_path(project_root), lock_payload)
     for legacy_path in legacy_state_files(project_root):
         legacy_path.unlink()
@@ -913,7 +945,7 @@ def install_or_update(args: argparse.Namespace, default_dry_run: bool) -> int:
         if not dry_run:
             if not args.no_backup:
                 plan["backupId"] = create_backup(project_root, plan)
-            apply_plan(project_root, uproject_path, intents, config, uproject_data, layout, profile, plugins, args.adopt_existing)
+            apply_plan(project_root, uproject_path, intents, config, uproject_data, layout, profile, plugins, args.force, args.adopt_existing)
             plan["message"] = "Install/update applied."
         else:
             plan["message"] = "Dry-run only; no files were written."
