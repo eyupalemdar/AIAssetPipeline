@@ -25,7 +25,8 @@ only as `source_art[].provenance` metadata.
 One-command installer scripts clone/update both public plugin repositories,
 install the workflow into a target Unreal project, and run `doctor --strict`.
 By default they run in `auto` mode: a new target uses `install`; a target that
-already has `Tools/AIWorkflowBootstrap` or `commonai.lock.json` uses
+already has `Tools/AIWorkflowBootstrap` or
+`Tools/AIWorkflowBootstrap/state/lock.json` uses
 `update --apply`. The final strict doctor check is executed through the target
 project's copied `Tools/AIWorkflowBootstrap/bootstrap.py`.
 
@@ -78,6 +79,9 @@ tool copied to `Tools/AIWorkflowBootstrap` inside each target project. If an
 older target such as a previous LyraStarterGame install does not have that
 folder yet, rerun one of the installer scripts or `bootstrap.py install/update`;
 the Unreal-facing pieces remain the two plugins under `Plugins/`.
+Project workflow state is stored next to the bootstrap tool under
+`Tools/AIWorkflowBootstrap/state/`. Commit `project.json`, `lock.json`, and the
+managed `.gitignore`; rollback backups under `state/backups/` are ignored.
 
 To force a specific bootstrap path, pass `-Mode install` or `-Mode update` on
 Windows, or `--mode install` / `--mode update` on Linux and macOS.

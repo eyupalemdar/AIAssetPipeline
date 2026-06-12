@@ -16,8 +16,11 @@ It copies the reusable pieces from this repo:
 
 The tool writes two target-project files:
 
-- `commonai.project.json`: selected profile and workflow paths
-- `commonai.lock.json`: hashes for managed files
+- `Tools/AIWorkflowBootstrap/state/project.json`: selected profile and workflow
+  paths
+- `Tools/AIWorkflowBootstrap/state/lock.json`: hashes for managed files
+- `Tools/AIWorkflowBootstrap/state/.gitignore`: keeps rollback backups out of
+  source control while leaving project/lock state visible
 
 Existing unmanaged files are not overwritten unless `--force` is passed.
 
@@ -30,9 +33,11 @@ copying files from the source repository.
 
 The platform installer scripts own this lifecycle. In their default `auto`
 mode, they check the target project for `Tools/AIWorkflowBootstrap/bootstrap.py`
-or `commonai.lock.json`: missing targets use `install`, existing managed targets
-use `update --apply`. After writing files, the scripts verify that the target
-bootstrap exists and run `doctor --strict` through that copied target tool.
+or `Tools/AIWorkflowBootstrap/state/lock.json`: missing targets use `install`,
+existing managed targets use `update --apply`. Legacy root
+`commonai.project.json` and `commonai.lock.json` are also detected and migrated.
+After writing files, the scripts verify that the target bootstrap exists and
+run `doctor --strict` through that copied target tool.
 
 ## Install
 
@@ -133,8 +138,11 @@ Apply the update:
 python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --apply
 ```
 
-Applied installs and updates create `.commonai/backups/<id>/` unless
-`--no-backup` is passed.
+Applied installs and updates create
+`Tools/AIWorkflowBootstrap/state/backups/<id>/` unless `--no-backup` is passed.
+Rollback can still read legacy `.commonai/backups/<id>/` entries.
+Commit `state/project.json`, `state/lock.json`, and `state/.gitignore`; do not
+commit `state/backups/`.
 
 Rollback the latest bootstrap write:
 
@@ -171,7 +179,8 @@ To fingerprint the current distributable workflow:
 python Tools/AIWorkflowBootstrap/bootstrap.py manifest
 ```
 
-The same manifest is stored in `commonai.lock.json` after install/update.
+The same manifest is stored in `Tools/AIWorkflowBootstrap/state/lock.json`
+after install/update.
 
 When installing into a project without `AGENTS.md`, bootstrap writes a CommonAI
 policy template. If `AGENTS.md` already exists, it is treated as an unmanaged

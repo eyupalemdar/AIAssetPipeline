@@ -1,9 +1,20 @@
 # Changelog
 
+## 0.1.3 - Bootstrap State Directory
+
+- Moved project workflow state to
+  `Tools/AIWorkflowBootstrap/state/project.json` and
+  `Tools/AIWorkflowBootstrap/state/lock.json`.
+- Moved new rollback backups to `Tools/AIWorkflowBootstrap/state/backups/`.
+- Added managed `Tools/AIWorkflowBootstrap/state/.gitignore` so backups stay
+  local while project/lock state can be committed.
+- Kept legacy root `commonai.project.json`, `commonai.lock.json`, and
+  `.commonai/backups/` readable for migration and rollback.
+
 ## 0.1.2 - Bootstrap-Controlled Install/Update
 
 - Installer scripts now auto-select `install` or `update --apply` based on the
-  target project's `Tools/AIWorkflowBootstrap` and `commonai.lock.json` state.
+  target project's `Tools/AIWorkflowBootstrap` and managed lock state.
 - Post-install strict diagnostics now run through the target project's copied
   `Tools/AIWorkflowBootstrap/bootstrap.py`.
 - Installers accept UE project directories or `.uproject` files.

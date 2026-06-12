@@ -20,9 +20,15 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.2"
-CONFIG_NAME = "commonai.project.json"
-LOCK_NAME = "commonai.lock.json"
+TOOL_VERSION = "0.1.3"
+STATE_DIR = Path("Tools") / "AIWorkflowBootstrap" / "state"
+CONFIG_NAME = (STATE_DIR / "project.json").as_posix()
+LOCK_NAME = (STATE_DIR / "lock.json").as_posix()
+STATE_GITIGNORE_NAME = (STATE_DIR / ".gitignore").as_posix()
+STATE_GITIGNORE_CONTENT = "backups/\n"
+LEGACY_CONFIG_NAME = "commonai.project.json"
+LEGACY_LOCK_NAME = "commonai.lock.json"
+LEGACY_BACKUP_DIR = Path(".commonai") / "backups"
 DEFAULT_PLUGINS = ("MCPToolkit", "AIAssetPipeline")
 
 EXCLUDED_DIR_NAMES = {
@@ -259,6 +265,62 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def canonical_config_path(project_root: Path) -> Path:
+    return project_root / CONFIG_NAME
+
+
+def canonical_lock_path(project_root: Path) -> Path:
+    return project_root / LOCK_NAME
+
+
+def state_gitignore_path(project_root: Path) -> Path:
+    return project_root / STATE_GITIGNORE_NAME
+
+
+def legacy_config_path(project_root: Path) -> Path:
+    return project_root / LEGACY_CONFIG_NAME
+
+
+def legacy_lock_path(project_root: Path) -> Path:
+    return project_root / LEGACY_LOCK_NAME
+
+
+def config_path_for_read(project_root: Path) -> Path:
+    canonical = canonical_config_path(project_root)
+    if canonical.exists():
+        return canonical
+    return legacy_config_path(project_root)
+
+
+def lock_path_for_read(project_root: Path) -> Path:
+    canonical = canonical_lock_path(project_root)
+    if canonical.exists():
+        return canonical
+    return legacy_lock_path(project_root)
+
+
+def load_config(project_root: Path) -> tuple[dict[str, Any], Path] | tuple[None, Path]:
+    path = config_path_for_read(project_root)
+    if not path.exists():
+        return None, canonical_config_path(project_root)
+    return load_json(path), path
+
+
+def load_lock_with_path(project_root: Path) -> tuple[dict[str, Any], Path] | tuple[None, Path]:
+    path = lock_path_for_read(project_root)
+    if not path.exists():
+        return None, canonical_lock_path(project_root)
+    return load_json(path), path
+
+
+def legacy_state_files(project_root: Path) -> list[Path]:
+    return [
+        path
+        for path in (legacy_config_path(project_root), legacy_lock_path(project_root))
+        if path.exists()
+    ]
+
+
 def iter_source_files(root: Path) -> Iterable[Path]:
     for path in sorted(root.rglob("*")):
         if any(part in EXCLUDED_DIR_NAMES for part in path.relative_to(root).parts):
@@ -390,7 +452,10 @@ def desired_file_intents(
         if not source_dir.is_dir():
             raise BootstrapError(f"Workflow source directory not found: {source_dir}")
         for source_file in iter_source_files(source_dir):
-            intents.append(FileIntent(source_file, destination_dir / source_file.relative_to(source_dir), kind))
+            relative = source_file.relative_to(source_dir)
+            if kind == "bootstrap-tool" and relative.parts and relative.parts[0] == "state":
+                continue
+            intents.append(FileIntent(source_file, destination_dir / relative, kind))
 
     if not validator_source.is_file():
         raise BootstrapError(f"TSpec validator source not found: {validator_source}")
@@ -402,10 +467,8 @@ def desired_file_intents(
 
 
 def load_lock(project_root: Path) -> dict[str, Any] | None:
-    path = project_root / LOCK_NAME
-    if not path.exists():
-        return None
-    return load_json(path)
+    lock_data, _path = load_lock_with_path(project_root)
+    return lock_data
 
 
 def locked_hashes(lock_data: dict[str, Any] | None) -> dict[str, str]:
@@ -416,6 +479,11 @@ def locked_hashes(lock_data: dict[str, Any] | None) -> dict[str, str]:
         if isinstance(item, dict) and item.get("path") and item.get("sha256"):
             hashes[str(item["path"])] = str(item["sha256"])
     return hashes
+
+
+def managed_hash_matches(hashes: dict[str, str], relative_path: str, path: Path) -> bool:
+    expected = hashes.get(relative_path)
+    return bool(expected and path.exists() and sha256_file(path) == expected)
 
 
 def classify_file_intent(
@@ -519,17 +587,18 @@ def build_plan(
 
     operations = [classify_file_intent(intent, project_root, layout.common_root, hashes, force) for intent in intents]
 
-    config_path = project_root / CONFIG_NAME
+    config_path = canonical_config_path(project_root)
+    current_config_path = config_path_for_read(project_root)
     config_op: dict[str, Any] = {"action": "write-json", "kind": "config", "path": CONFIG_NAME}
-    if config_path.exists():
+    if current_config_path.exists():
         try:
-            current_config = load_json(config_path)
+            current_config = load_json(current_config_path)
         except BootstrapError as exc:
             current_config = None
             config_op["message"] = str(exc)
-        if current_config == config:
+        if config_path.exists() and current_config == config:
             config_op["status"] = "unchanged"
-        elif force or (hashes.get(CONFIG_NAME) and sha256_file(config_path) == hashes[CONFIG_NAME]):
+        elif current_config == config or force or managed_hash_matches(hashes, relpath(current_config_path, project_root), current_config_path):
             config_op["status"] = "planned"
         else:
             config_op["status"] = "conflict"
@@ -537,6 +606,31 @@ def build_plan(
     else:
         config_op["status"] = "planned"
     operations.append(config_op)
+
+    state_gitignore = state_gitignore_path(project_root)
+    state_gitignore_op: dict[str, Any] = {"action": "write-file", "kind": "state-gitignore", "path": STATE_GITIGNORE_NAME}
+    if state_gitignore.exists():
+        current_content = state_gitignore.read_text(encoding="utf-8")
+        if current_content == STATE_GITIGNORE_CONTENT:
+            state_gitignore_op["status"] = "unchanged"
+        elif force or managed_hash_matches(hashes, STATE_GITIGNORE_NAME, state_gitignore):
+            state_gitignore_op["status"] = "planned"
+        else:
+            state_gitignore_op["status"] = "conflict"
+            state_gitignore_op["message"] = "Existing state .gitignore is not managed by this lock."
+    else:
+        state_gitignore_op["status"] = "planned"
+    operations.append(state_gitignore_op)
+
+    for legacy_path in legacy_state_files(project_root):
+        operations.append(
+            {
+                "action": "remove-legacy",
+                "kind": "legacy-state",
+                "path": relpath(legacy_path, project_root),
+                "status": "planned",
+            }
+        )
 
     uproject_data = read_uproject(uproject_path)
     desired_uproject, uproject_changed = ensure_uproject_plugins(uproject_data, plugins)
@@ -580,7 +674,11 @@ def summarize_operations(operations: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def backup_root(project_root: Path) -> Path:
-    return project_root / ".commonai" / "backups"
+    return project_root / STATE_DIR / "backups"
+
+
+def legacy_backup_root(project_root: Path) -> Path:
+    return project_root / LEGACY_BACKUP_DIR
 
 
 def create_backup(project_root: Path, plan: dict[str, Any]) -> str:
@@ -625,13 +723,21 @@ def create_backup(project_root: Path, plan: dict[str, Any]) -> str:
 def rollback(args: argparse.Namespace) -> int:
     try:
         project_root, _uproject_path = find_uproject(args.project)
-        backups = backup_root(project_root)
         backup_id = args.backup
         if backup_id == "latest":
-            candidates = sorted(path.name for path in backups.iterdir() if path.is_dir()) if backups.exists() else []
+            candidates: list[tuple[str, Path]] = []
+            for backups in (backup_root(project_root), legacy_backup_root(project_root)):
+                if backups.exists():
+                    candidates.extend((path.name, backups) for path in backups.iterdir() if path.is_dir())
             if not candidates:
-                raise BootstrapError(f"No backups found under {backups}")
-            backup_id = candidates[-1]
+                raise BootstrapError(f"No backups found under {backup_root(project_root)} or {legacy_backup_root(project_root)}")
+            backup_id, backups = sorted(candidates, key=lambda item: item[0])[-1]
+        else:
+            backups = backup_root(project_root)
+            if not (backups / backup_id).is_dir():
+                legacy_backups = legacy_backup_root(project_root)
+                if (legacy_backups / backup_id).is_dir():
+                    backups = legacy_backups
         root = backups / backup_id
         manifest_path = root / "manifest.json"
         manifest_data = load_json(manifest_path)
@@ -690,6 +796,17 @@ def make_lock(
             }
         )
 
+    gitignore_path = state_gitignore_path(project_root)
+    if gitignore_path.exists():
+        managed_files.append(
+            {
+                "path": STATE_GITIGNORE_NAME,
+                "sha256": sha256_file(gitignore_path),
+                "source": "generated",
+                "kind": "state-gitignore",
+            }
+        )
+
     plugin_entries = []
     for plugin_name in plugins:
         uplugin_path = project_root / "Plugins" / plugin_name / f"{plugin_name}.uplugin"
@@ -742,18 +859,24 @@ def apply_plan(
         intent.destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(intent.source, intent.destination)
 
-    write_json(project_root / CONFIG_NAME, config)
+    write_json(canonical_config_path(project_root), config)
+    state_gitignore = state_gitignore_path(project_root)
+    state_gitignore.parent.mkdir(parents=True, exist_ok=True)
+    state_gitignore.write_text(STATE_GITIGNORE_CONTENT, encoding="utf-8")
     write_json(uproject_path, uproject_data)
     lock_payload = make_lock(project_root, layout, profile, plugins, intents)
-    write_json(project_root / LOCK_NAME, lock_payload)
+    write_json(canonical_lock_path(project_root), lock_payload)
+    for legacy_path in legacy_state_files(project_root):
+        legacy_path.unlink()
 
 
 def install_or_update(args: argparse.Namespace, default_dry_run: bool) -> int:
     try:
         project_root, uproject_path = find_uproject(args.project)
         layout = discover_source_layout(args.source_root, args.mcp_source_root, args.asset_source_root)
-        config_path = project_root / CONFIG_NAME
-        existing_config = load_json(config_path) if default_dry_run and config_path.exists() else None
+        existing_config, _config_path = load_config(project_root)
+        if not default_dry_run:
+            existing_config = None
         plugins = list(existing_config.get("plugins", [])) if existing_config else parse_plugins(args.plugins)
         if not plugins:
             plugins = parse_plugins(args.plugins)
@@ -803,24 +926,24 @@ def doctor(args: argparse.Namespace) -> int:
         emit({"ok": False, "tool": TOOL_NAME, "checks": [check(False, "project", str(exc))]})
         return 2
 
-    config_path = project_root / CONFIG_NAME
-    lock_path = project_root / LOCK_NAME
     config_data: dict[str, Any] | None = None
     lock_data: dict[str, Any] | None = None
 
+    config_path = config_path_for_read(project_root)
     if config_path.exists():
         try:
             config_data = load_json(config_path)
-            checks.append(check(config_data.get("schema") == "commonai-project-config-v1", "config-schema", CONFIG_NAME))
+            checks.append(check(config_data.get("schema") == "commonai-project-config-v1", "config-schema", relpath(config_path, project_root)))
         except BootstrapError as exc:
             checks.append(check(False, "config-json", str(exc)))
     else:
         checks.append(check(False, "config-present", f"Missing {CONFIG_NAME}"))
 
+    lock_path = lock_path_for_read(project_root)
     if lock_path.exists():
         try:
             lock_data = load_json(lock_path)
-            checks.append(check(lock_data.get("schema") == "commonai-lock-v1", "lock-schema", LOCK_NAME))
+            checks.append(check(lock_data.get("schema") == "commonai-lock-v1", "lock-schema", relpath(lock_path, project_root)))
         except BootstrapError as exc:
             checks.append(check(False, "lock-json", str(exc)))
     else:
@@ -858,6 +981,7 @@ def doctor(args: argparse.Namespace) -> int:
         effective_config["assetPipelineSchemaDir"],
         effective_config["bootstrapToolPath"],
         effective_config["validatorPath"],
+        STATE_GITIGNORE_NAME,
     ]
     for expected in expected_paths:
         path = project_root / expected
@@ -865,7 +989,7 @@ def doctor(args: argparse.Namespace) -> int:
 
     if lock_data:
         if args.strict:
-            checks.append(check(lock_data.get("sourceManifest", {}).get("schema") == "commonai-source-manifest-v1", "source-manifest-schema", "commonai.lock.json"))
+            checks.append(check(lock_data.get("sourceManifest", {}).get("schema") == "commonai-source-manifest-v1", "source-manifest-schema", relpath(lock_path, project_root)))
         missing_managed = []
         changed_managed = []
         for item in lock_data.get("managedFiles", []):
@@ -912,7 +1036,7 @@ def doctor(args: argparse.Namespace) -> int:
 def validate_tspecs(args: argparse.Namespace) -> int:
     try:
         project_root, _uproject_path = find_uproject(args.project)
-        config_path = project_root / CONFIG_NAME
+        config_path = config_path_for_read(project_root)
         config_data = load_json(config_path) if config_path.exists() else config_for(args.profile, parse_plugins(args.plugins))
         spec_directory = args.spec_directory or str(config_data["uiSpecDir"])
         validator_path = project_root / str(config_data["validatorPath"])
@@ -999,7 +1123,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--plugins", default=",".join(DEFAULT_PLUGINS), help="Comma-separated plugin list.")
         command.add_argument("--force", action="store_true", help="Overwrite conflicting managed files.")
         command.add_argument("--format", choices=("json", "markdown"), default="json", help="Output format.")
-        command.add_argument("--no-backup", action="store_true", help="Do not create a .commonai backup before applying changes.")
+        command.add_argument("--no-backup", action="store_true", help="Do not create a Tools/AIWorkflowBootstrap/state/backups entry before applying changes.")
 
     install_parser = subparsers.add_parser("install", help="Install workflow files into a project.")
     add_common(install_parser)
@@ -1026,7 +1150,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--strict", action="store_true", help="Run validator and stricter lock/source checks.")
     doctor_parser.set_defaults(func=doctor)
 
-    rollback_parser = subparsers.add_parser("rollback", help="Restore files from a .commonai backup.")
+    rollback_parser = subparsers.add_parser("rollback", help="Restore files from a bootstrap state backup.")
     rollback_parser.add_argument("--project", default=".", help="Target UE project root or .uproject path.")
     rollback_parser.add_argument("--backup", default="latest", help="Backup id or 'latest'.")
     rollback_parser.set_defaults(func=rollback)

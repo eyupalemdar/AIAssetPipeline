@@ -103,6 +103,9 @@ class BootstrapTests(unittest.TestCase):
             self.assertFalse(payload["dryRun"])
             self.assertTrue((project / bootstrap.CONFIG_NAME).is_file())
             self.assertTrue((project / bootstrap.LOCK_NAME).is_file())
+            self.assertTrue((project / bootstrap.STATE_GITIGNORE_NAME).is_file())
+            self.assertFalse((project / bootstrap.LEGACY_CONFIG_NAME).exists())
+            self.assertFalse((project / bootstrap.LEGACY_LOCK_NAME).exists())
             self.assertTrue((project / "Plugins" / "MCPToolkit" / "MCPToolkit.uplugin").is_file())
             self.assertTrue((project / "Plugins" / "AIAssetPipeline" / "AIAssetPipeline.uplugin").is_file())
             self.assertTrue((project / "Tools" / "AIWorkflowBootstrap" / "bootstrap.py").is_file())
@@ -177,6 +180,44 @@ class BootstrapTests(unittest.TestCase):
             self.assertTrue(rollback_payload["ok"])
             self.assertFalse((project / bootstrap.CONFIG_NAME).exists())
             self.assertFalse((project / "Plugins" / "MCPToolkit" / "MCPToolkit.uplugin").exists())
+
+    def test_update_migrates_legacy_root_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            install_code, install_payload = self.run_cli(
+                [
+                    "install",
+                    "--project",
+                    str(project),
+                    *self.source_args(),
+                ]
+            )
+            self.assertEqual(install_code, 0)
+            self.assertTrue(install_payload["ok"])
+
+            legacy_config = project / bootstrap.LEGACY_CONFIG_NAME
+            legacy_lock = project / bootstrap.LEGACY_LOCK_NAME
+            legacy_config.write_text((project / bootstrap.CONFIG_NAME).read_text(encoding="utf-8"), encoding="utf-8")
+            legacy_lock.write_text((project / bootstrap.LOCK_NAME).read_text(encoding="utf-8"), encoding="utf-8")
+            (project / bootstrap.CONFIG_NAME).unlink()
+            (project / bootstrap.LOCK_NAME).unlink()
+
+            update_code, update_payload = self.run_cli(
+                [
+                    "update",
+                    "--project",
+                    str(project),
+                    *self.source_args(),
+                    "--apply",
+                ]
+            )
+
+            self.assertEqual(update_code, 0)
+            self.assertTrue(update_payload["ok"])
+            self.assertTrue((project / bootstrap.CONFIG_NAME).is_file())
+            self.assertTrue((project / bootstrap.LOCK_NAME).is_file())
+            self.assertFalse(legacy_config.exists())
+            self.assertFalse(legacy_lock.exists())
 
     def test_manifest_reports_source_fingerprint(self) -> None:
         code, payload = self.run_cli(["manifest", *self.source_args()])

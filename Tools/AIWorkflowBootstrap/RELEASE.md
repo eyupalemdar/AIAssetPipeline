@@ -21,8 +21,9 @@ For a new target project, prefer the platform installer scripts:
 
 The platform scripts default to `auto` mode. They install a missing workflow,
 apply updates for an existing `Tools/AIWorkflowBootstrap` or
-`commonai.lock.json`, then run strict diagnostics from the target project's
-copied bootstrap tool.
+`Tools/AIWorkflowBootstrap/state/lock.json`, then run strict diagnostics from
+the target project's copied bootstrap tool. Legacy root `commonai.lock.json`
+also triggers update mode and is migrated by the applied update.
 
 ```powershell
 $u='https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_windows.ps1'; $p="$env:TEMP\install_commonai_windows.ps1"; Invoke-WebRequest $u -OutFile $p; powershell -ExecutionPolicy Bypass -File $p -Project D:\Path\To\OtherProject

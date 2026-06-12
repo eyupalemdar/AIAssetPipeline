@@ -92,10 +92,11 @@ if (-not (Test-Path -LiteralPath $bootstrap)) {
 }
 
 $targetBootstrap = Join-Path $projectRootPath "Tools\AIWorkflowBootstrap\bootstrap.py"
-$targetLock = Join-Path $projectRootPath "commonai.lock.json"
+$targetLock = Join-Path $projectRootPath "Tools\AIWorkflowBootstrap\state\lock.json"
+$legacyTargetLock = Join-Path $projectRootPath "commonai.lock.json"
 $bootstrapCommand = $Mode.ToLowerInvariant()
 if ($bootstrapCommand -eq "auto") {
-    if ((Test-Path -LiteralPath $targetBootstrap) -or (Test-Path -LiteralPath $targetLock)) {
+    if ((Test-Path -LiteralPath $targetBootstrap) -or (Test-Path -LiteralPath $targetLock) -or (Test-Path -LiteralPath $legacyTargetLock)) {
         $bootstrapCommand = "update"
     }
     else {

@@ -116,10 +116,11 @@ sync_repo "${MCP_TOOLKIT_REPO}" "${MCP_ROOT}"
 
 BOOTSTRAP="${ASSET_ROOT}/Tools/AIWorkflowBootstrap/bootstrap.py"
 TARGET_BOOTSTRAP="${PROJECT_ROOT}/Tools/AIWorkflowBootstrap/bootstrap.py"
-TARGET_LOCK="${PROJECT_ROOT}/commonai.lock.json"
+TARGET_LOCK="${PROJECT_ROOT}/Tools/AIWorkflowBootstrap/state/lock.json"
+LEGACY_TARGET_LOCK="${PROJECT_ROOT}/commonai.lock.json"
 BOOTSTRAP_COMMAND="${MODE}"
 if [[ "${BOOTSTRAP_COMMAND}" == "auto" ]]; then
-  if [[ -f "${TARGET_BOOTSTRAP}" || -f "${TARGET_LOCK}" ]]; then
+  if [[ -f "${TARGET_BOOTSTRAP}" || -f "${TARGET_LOCK}" || -f "${LEGACY_TARGET_LOCK}" ]]; then
     BOOTSTRAP_COMMAND="update"
   else
     BOOTSTRAP_COMMAND="install"
