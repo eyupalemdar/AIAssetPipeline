@@ -17,6 +17,28 @@ bootstrap tool itself.
 
 ## Target Update
 
+For a new target project, prefer the platform installer scripts:
+
+```powershell
+$u='https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_windows.ps1'; $p="$env:TEMP\install_commonai_windows.ps1"; Invoke-WebRequest $u -OutFile $p; powershell -ExecutionPolicy Bypass -File $p -Project D:\Path\To\OtherProject
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_linux.sh | bash -s -- --project /path/to/OtherProject
+curl -fsSL https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_macos.sh | bash -s -- --project /path/to/OtherProject
+```
+
+From an existing checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\AIWorkflowBootstrap\install_commonai_windows.ps1 -Project D:\Path\To\OtherProject
+```
+
+```bash
+bash Tools/AIWorkflowBootstrap/install_commonai_linux.sh --project /path/to/OtherProject
+bash Tools/AIWorkflowBootstrap/install_commonai_macos.sh --project /path/to/OtherProject
+```
+
 Always inspect the update first:
 
 ```powershell

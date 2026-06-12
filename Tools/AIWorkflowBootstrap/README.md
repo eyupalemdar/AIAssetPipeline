@@ -21,7 +21,70 @@ The tool writes two target-project files:
 
 Existing unmanaged files are not overwritten unless `--force` is passed.
 
+`AIWorkflowBootstrap` is intentionally not an Unreal plugin. It is a
+distribution and maintenance tool that the installer copies into each target
+project at `Tools/AIWorkflowBootstrap`. Unreal loads only `Plugins/MCPToolkit`
+and `Plugins/AIAssetPipeline`; the bootstrap folder exists so the target can run
+`doctor`, `update`, `rollback`, `diff`, and TSpec validation without manually
+copying files from the source repository.
+
 ## Install
+
+### One-Command Public Install
+
+Run directly from GitHub:
+
+Windows PowerShell:
+
+```powershell
+$u='https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_windows.ps1'; $p="$env:TEMP\install_commonai_windows.ps1"; Invoke-WebRequest $u -OutFile $p; powershell -ExecutionPolicy Bypass -File $p -Project D:\Path\To\OtherProject
+```
+
+Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_linux.sh | bash -s -- --project /path/to/OtherProject
+```
+
+macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_macos.sh | bash -s -- --project /path/to/OtherProject
+```
+
+Or run from an existing checkout:
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\AIWorkflowBootstrap\install_commonai_windows.ps1 -Project D:\Path\To\OtherProject
+```
+
+Linux:
+
+```bash
+bash Tools/AIWorkflowBootstrap/install_commonai_linux.sh --project /path/to/OtherProject
+```
+
+macOS:
+
+```bash
+bash Tools/AIWorkflowBootstrap/install_commonai_macos.sh --project /path/to/OtherProject
+```
+
+These scripts clone or fast-forward update:
+
+- `https://github.com/eyupalemdar/AIAssetPipeline.git`
+- `https://github.com/eyupalemdar/UnrealMCPToolkit.git`
+
+Default clone cache:
+
+- Windows: `%LOCALAPPDATA%\CommonAI\Repos`
+- Linux/macOS: `~/.commonai/repos`
+
+GitHub CLI is optional. Public HTTPS clone uses only `git`. Use
+`-InstallGitHubCli` on Windows or `--install-gh` on Linux/macOS when you want
+the script to install `gh` through the available platform package manager.
 
 From this repo:
 

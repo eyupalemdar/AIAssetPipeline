@@ -22,6 +22,59 @@ only as `source_art[].provenance` metadata.
 
 ## Quick Start
 
+One-command installer scripts clone/update both public plugin repositories,
+install the workflow into a target Unreal project, and run `doctor --strict`.
+
+Run directly from GitHub:
+
+Windows PowerShell:
+
+```powershell
+$u='https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_windows.ps1'; $p="$env:TEMP\install_commonai_windows.ps1"; Invoke-WebRequest $u -OutFile $p; powershell -ExecutionPolicy Bypass -File $p -Project D:\Path\To\UnrealProject
+```
+
+Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_linux.sh | bash -s -- --project /path/to/UnrealProject
+```
+
+macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_macos.sh | bash -s -- --project /path/to/UnrealProject
+```
+
+Or run from an existing checkout:
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\AIWorkflowBootstrap\install_commonai_windows.ps1 -Project D:\Path\To\UnrealProject
+```
+
+Linux:
+
+```bash
+bash Tools/AIWorkflowBootstrap/install_commonai_linux.sh --project /path/to/UnrealProject
+```
+
+macOS:
+
+```bash
+bash Tools/AIWorkflowBootstrap/install_commonai_macos.sh --project /path/to/UnrealProject
+```
+
+GitHub CLI is optional. The scripts use `git` over public HTTPS by default.
+Pass `--install-gh` or `-InstallGitHubCli` if you want the script to install
+`gh` where the platform package manager supports it.
+
+`AIWorkflowBootstrap` is not an Unreal plugin. It is a stdlib-only management
+tool copied to `Tools/AIWorkflowBootstrap` inside each target project. If an
+older target such as a previous LyraStarterGame install does not have that
+folder yet, rerun one of the installer scripts or `bootstrap.py install/update`;
+the Unreal-facing pieces remain the two plugins under `Plugins/`.
+
 Install both required plugins into a target Unreal project:
 
 ```powershell

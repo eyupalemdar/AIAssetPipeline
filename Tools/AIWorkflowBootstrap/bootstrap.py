@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.1.1"
 CONFIG_NAME = "commonai.project.json"
 LOCK_NAME = "commonai.lock.json"
 DEFAULT_PLUGINS = ("MCPToolkit", "AIAssetPipeline")
