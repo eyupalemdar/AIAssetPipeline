@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 - Adopt Existing Workflow Files
+
+- Added `--adopt-existing` to bootstrap install/update flows. Existing
+  unmanaged project workflow files can now be preserved and recorded in the
+  lock while missing managed files and state are installed.
+
 ## 0.1.4 - BOM-Tolerant Project JSON
 
 - Bootstrap JSON loading now accepts UTF-8 files with or without a BOM. This

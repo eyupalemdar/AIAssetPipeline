@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.4"
+TOOL_VERSION = "0.1.5"
 STATE_DIR = Path("Tools") / "AIWorkflowBootstrap" / "state"
 CONFIG_NAME = (STATE_DIR / "project.json").as_posix()
 LOCK_NAME = (STATE_DIR / "lock.json").as_posix()
@@ -492,6 +492,7 @@ def classify_file_intent(
     source_root: Path,
     managed_hashes: dict[str, str],
     force: bool,
+    adopt_existing: bool,
 ) -> dict[str, Any]:
     source_hash = sha256_file(intent.source)
     rel_destination = relpath(intent.destination, project_root)
@@ -521,6 +522,10 @@ def classify_file_intent(
         return op
     if managed_hashes.get(rel_destination) == destination_hash:
         op["status"] = "planned"
+        return op
+    if adopt_existing:
+        op["status"] = "adopted"
+        op["message"] = "Existing destination adopted into the lock and left unchanged."
         return op
 
     op["status"] = "conflict"
@@ -579,13 +584,14 @@ def build_plan(
     profile: str,
     plugins: list[str],
     force: bool,
+    adopt_existing: bool,
 ) -> tuple[dict[str, Any], list[FileIntent], dict[str, Any], dict[str, Any]]:
     config = config_for(profile, plugins)
     lock_data = load_lock(project_root)
     hashes = locked_hashes(lock_data)
     intents = desired_file_intents(layout, project_root, config, plugins)
 
-    operations = [classify_file_intent(intent, project_root, layout.common_root, hashes, force) for intent in intents]
+    operations = [classify_file_intent(intent, project_root, layout.common_root, hashes, force, adopt_existing) for intent in intents]
 
     config_path = canonical_config_path(project_root)
     current_config_path = config_path_for_read(project_root)
@@ -852,9 +858,12 @@ def apply_plan(
     layout: SourceLayout,
     profile: str,
     plugins: list[str],
+    adopt_existing: bool,
 ) -> None:
     for intent in intents:
         if same_path(intent.source, intent.destination):
+            continue
+        if adopt_existing and intent.destination.exists() and sha256_file(intent.source) != sha256_file(intent.destination):
             continue
         intent.destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(intent.source, intent.destination)
@@ -891,6 +900,7 @@ def install_or_update(args: argparse.Namespace, default_dry_run: bool) -> int:
             profile,
             plugins,
             args.force,
+            args.adopt_existing,
         )
         plan["command"] = args.command
         conflicts = [op for op in plan["operations"] if op.get("status") == "conflict"]
@@ -903,7 +913,7 @@ def install_or_update(args: argparse.Namespace, default_dry_run: bool) -> int:
         if not dry_run:
             if not args.no_backup:
                 plan["backupId"] = create_backup(project_root, plan)
-            apply_plan(project_root, uproject_path, intents, config, uproject_data, layout, profile, plugins)
+            apply_plan(project_root, uproject_path, intents, config, uproject_data, layout, profile, plugins, args.adopt_existing)
             plan["message"] = "Install/update applied."
         else:
             plan["message"] = "Dry-run only; no files were written."
@@ -1122,6 +1132,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--profile", choices=sorted(PROFILE_DEFAULTS), default="commonui")
         command.add_argument("--plugins", default=",".join(DEFAULT_PLUGINS), help="Comma-separated plugin list.")
         command.add_argument("--force", action="store_true", help="Overwrite conflicting managed files.")
+        command.add_argument("--adopt-existing", action="store_true", help="Adopt existing unmanaged files into the lock without overwriting them.")
         command.add_argument("--format", choices=("json", "markdown"), default="json", help="Output format.")
         command.add_argument("--no-backup", action="store_true", help="Do not create a Tools/AIWorkflowBootstrap/state/backups entry before applying changes.")
 

@@ -238,6 +238,31 @@ class BootstrapTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertTrue((project / bootstrap.CONFIG_NAME).is_file())
 
+    def test_install_adopts_existing_agent_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            agent_policy = project / "AGENTS.md"
+            agent_policy.write_text("# Custom Rules\n\nKeep this file.\n", encoding="utf-8")
+
+            code, payload = self.run_cli(
+                [
+                    "install",
+                    "--project",
+                    str(project),
+                    *self.source_args(),
+                    "--adopt-existing",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(agent_policy.read_text(encoding="utf-8"), "# Custom Rules\n\nKeep this file.\n")
+            self.assertTrue((project / bootstrap.CONFIG_NAME).is_file())
+
+            strict_code, strict_payload = self.run_cli(["doctor", "--project", str(project), "--strict"])
+            self.assertEqual(strict_code, 0)
+            self.assertTrue(strict_payload["ok"])
+
     def test_manifest_reports_source_fingerprint(self) -> None:
         code, payload = self.run_cli(["manifest", *self.source_args()])
 

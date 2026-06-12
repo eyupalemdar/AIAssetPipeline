@@ -57,6 +57,14 @@ For split public repos:
 python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --asset-source-root D:\Repos\AIAssetPipeline --mcp-source-root D:\Repos\UnrealMCPToolkit
 ```
 
+For an existing manually maintained project, inspect and apply with adoption so
+custom project files are not overwritten:
+
+```powershell
+python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --adopt-existing
+python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --apply --adopt-existing
+```
+
 Apply only after the dry-run has no unexpected conflicts:
 
 ```powershell

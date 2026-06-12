@@ -100,6 +100,11 @@ the script to install `gh` through the available platform package manager.
 Use `-Mode install` or `-Mode update` on Windows, and `--mode install` or
 `--mode update` on Linux/macOS, when you need to bypass auto-detection.
 
+For an existing project that already has customized workflow docs, `AGENTS.md`,
+or validators, run bootstrap with `--adopt-existing`. Existing unmanaged files
+are preserved and recorded in the lock while missing managed files and state are
+installed.
+
 From this repo:
 
 ```powershell
@@ -136,6 +141,12 @@ Apply the update:
 
 ```powershell
 python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --apply
+```
+
+Adopt an existing manual install without overwriting customized files:
+
+```powershell
+python Tools/AIWorkflowBootstrap/bootstrap.py update --project D:\Path\To\OtherProject --apply --adopt-existing
 ```
 
 Applied installs and updates create
