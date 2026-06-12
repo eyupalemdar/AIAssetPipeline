@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://projectokey.local/schemas/tspec-asset-pipeline-extension-v1.schema.json",
+  "title": "TSpec Asset Pipeline Link Extension",
+  "type": "object",
+  "properties": {
+    "assetPipelines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "spec", "manifest", "requiredComponentIds", "texturePackagePath"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "spec": { "type": "string", "minLength": 1 },
+          "manifest": { "type": "string", "minLength": 1 },
+          "requiredComponentIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "texturePackagePath": { "type": "string", "pattern": "^/Game/" },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

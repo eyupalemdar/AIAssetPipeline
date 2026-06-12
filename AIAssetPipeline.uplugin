@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "AI Asset Pipeline",
+	"Description": "Provider-agnostic AI source art packaging, manifest validation, and guarded Unreal Editor texture import workflow.",
+	"Category": "Editor",
+	"SupportedTargetPlatforms": [
+		"Win64",
+		"Linux"
+	],
+	"CreatedBy": "Alemdar Labs",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AIAssetPipeline",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "MCPToolkit",
+			"Enabled": true
+		}
+	]
+}

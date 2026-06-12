@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://projectokey.local/schemas/ai-asset-pipeline-spec-v1.schema.json",
+  "title": "AI Asset Pipeline Spec",
+  "type": "object",
+  "required": ["$schema", "run_id", "source_art", "runtime_output_dir", "review_output_dir", "components"],
+  "properties": {
+    "$schema": { "const": "ai-asset-pipeline-spec-v1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "created": { "type": "string" },
+    "validation_policy": { "const": "fail_closed" },
+    "runtime_output_dir": { "type": "string", "minLength": 1 },
+    "review_output_dir": { "type": "string", "minLength": 1 },
+    "manifest_name": { "type": "string" },
+    "source_art": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "prompt_files", "provenance"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "prompt_files": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "provenance": {
+            "type": "object",
+            "required": ["provider", "model", "generation_id"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1 },
+              "model": { "type": "string", "minLength": 1 },
+              "generation_id": { "type": "string", "minLength": 1 },
+              "notes": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "derived_components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "ue_import": {
+      "type": "object",
+      "properties": {
+        "texture_package_path": { "type": "string", "pattern": "^/Game/" },
+        "probe_wbp_path": { "type": "string", "pattern": "^/Game/" },
+        "texture_import_policy": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["component_id", "draw_rect", "asset_suffix", "runtime_asset_name", "ue_asset_name"],
+      "properties": {
+        "component_id": { "type": "string", "minLength": 1 },
+        "source_art_id": { "type": "string" },
+        "selector": { "type": "object", "additionalProperties": true },
+        "draw_rect": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "integer" },
+            { "type": "integer" },
+            { "type": "integer", "minimum": 1 },
+            { "type": "integer", "minimum": 1 }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "asset_suffix": { "type": "string", "minLength": 1 },
+        "runtime_asset_name": { "type": "string", "minLength": 1 },
+        "ue_package_path": { "type": "string", "pattern": "^/Game/" },
+        "ue_asset_name": { "type": "string", "minLength": 1 },
+        "texture_type": { "enum": ["color", "mask", "glow", "icon"] },
+        "target_size": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "integer", "minimum": 1 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: eyupalemdar/UnrealMCPToolkit
+          path: UnrealMCPToolkit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: python -m pip install pillow numpy
+      - name: Compile Python
+        run: |
+          python -m py_compile Resources/Python/ai_asset_pipeline/cli.py Resources/Python/ai_asset_pipeline/pipeline.py Resources/Python/ai_asset_pipeline/smoke.py Resources/Python/test_ai_asset_pipeline.py
+      - name: Run Python tests
+        run: python Resources/Python/test_ai_asset_pipeline.py
+      - name: Validate JSON schemas
+        run: |
+          python -m json.tool Resources/Schemas/asset_pipeline_spec.v1.json > NUL
+          python -m json.tool Resources/Schemas/asset_pipeline_manifest.v1.json > NUL
+          python -m json.tool Resources/Schemas/tspec_asset_pipeline_extension.v1.json > NUL
+      - name: Bootstrap manifest
+        run: python Tools/AIWorkflowBootstrap/bootstrap.py manifest --asset-source-root . --mcp-source-root UnrealMCPToolkit
