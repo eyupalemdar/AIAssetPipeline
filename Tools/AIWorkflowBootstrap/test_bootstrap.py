@@ -219,6 +219,25 @@ class BootstrapTests(unittest.TestCase):
             self.assertFalse(legacy_config.exists())
             self.assertFalse(legacy_lock.exists())
 
+    def test_install_accepts_utf8_sig_uproject(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            uproject = project / "TargetGame.uproject"
+            uproject.write_text(uproject.read_text(encoding="utf-8"), encoding="utf-8-sig")
+
+            code, payload = self.run_cli(
+                [
+                    "install",
+                    "--project",
+                    str(project),
+                    *self.source_args(),
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["ok"])
+            self.assertTrue((project / bootstrap.CONFIG_NAME).is_file())
+
     def test_manifest_reports_source_fingerprint(self) -> None:
         code, payload = self.run_cli(["manifest", *self.source_args()])
 

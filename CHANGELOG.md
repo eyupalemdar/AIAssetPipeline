@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - BOM-Tolerant Project JSON
+
+- Bootstrap JSON loading now accepts UTF-8 files with or without a BOM. This
+  keeps fresh installs working with `.uproject` files touched by Windows
+  PowerShell tooling.
+
 ## 0.1.3 - Bootstrap State Directory
 
 - Moved project workflow state to

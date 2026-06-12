@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.3"
+TOOL_VERSION = "0.1.4"
 STATE_DIR = Path("Tools") / "AIWorkflowBootstrap" / "state"
 CONFIG_NAME = (STATE_DIR / "project.json").as_posix()
 LOCK_NAME = (STATE_DIR / "lock.json").as_posix()
@@ -249,7 +249,7 @@ def find_uproject(project: str | None) -> tuple[Path, Path]:
 
 def load_json(path: Path) -> dict[str, Any]:
     try:
-        with path.open("r", encoding="utf-8") as handle:
+        with path.open("r", encoding="utf-8-sig") as handle:
             data = json.load(handle)
     except FileNotFoundError as exc:
         raise BootstrapError(f"File not found: {path}") from exc
