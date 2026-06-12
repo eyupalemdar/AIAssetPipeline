@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 - Bootstrap-Controlled Install/Update
+
+- Installer scripts now auto-select `install` or `update --apply` based on the
+  target project's `Tools/AIWorkflowBootstrap` and `commonai.lock.json` state.
+- Post-install strict diagnostics now run through the target project's copied
+  `Tools/AIWorkflowBootstrap/bootstrap.py`.
+- Installers accept UE project directories or `.uproject` files.
+
 ## 0.1.1 - One-Command Installers
 
 - Added Windows, Linux, and macOS installer scripts that clone/update the public

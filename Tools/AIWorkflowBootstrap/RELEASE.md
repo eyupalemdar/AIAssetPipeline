@@ -8,7 +8,7 @@ Unreal Engine project.
 ```powershell
 python -m py_compile Tools/AIWorkflowBootstrap/bootstrap.py Tools/AIWorkflowBootstrap/install.py Tools/AIWorkflowBootstrap/update.py Tools/AIWorkflowBootstrap/doctor.py Tools/AIWorkflowBootstrap/test_bootstrap.py
 python Tools/AIWorkflowBootstrap/test_bootstrap.py
-python Tools/AIWorkflowBootstrap/bootstrap.py manifest
+python Tools/AIWorkflowBootstrap/bootstrap.py manifest --mcp-source-root D:\Repos\UnrealMCPToolkit
 ```
 
 The `manifest` command prints a deterministic fingerprint for the source
@@ -18,6 +18,11 @@ bootstrap tool itself.
 ## Target Update
 
 For a new target project, prefer the platform installer scripts:
+
+The platform scripts default to `auto` mode. They install a missing workflow,
+apply updates for an existing `Tools/AIWorkflowBootstrap` or
+`commonai.lock.json`, then run strict diagnostics from the target project's
+copied bootstrap tool.
 
 ```powershell
 $u='https://raw.githubusercontent.com/eyupalemdar/AIAssetPipeline/main/Tools/AIWorkflowBootstrap/install_commonai_windows.ps1'; $p="$env:TEMP\install_commonai_windows.ps1"; Invoke-WebRequest $u -OutFile $p; powershell -ExecutionPolicy Bypass -File $p -Project D:\Path\To\OtherProject

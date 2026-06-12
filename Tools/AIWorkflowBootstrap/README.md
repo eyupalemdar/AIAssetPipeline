@@ -28,6 +28,12 @@ and `Plugins/AIAssetPipeline`; the bootstrap folder exists so the target can run
 `doctor`, `update`, `rollback`, `diff`, and TSpec validation without manually
 copying files from the source repository.
 
+The platform installer scripts own this lifecycle. In their default `auto`
+mode, they check the target project for `Tools/AIWorkflowBootstrap/bootstrap.py`
+or `commonai.lock.json`: missing targets use `install`, existing managed targets
+use `update --apply`. After writing files, the scripts verify that the target
+bootstrap exists and run `doctor --strict` through that copied target tool.
+
 ## Install
 
 ### One-Command Public Install
@@ -85,6 +91,9 @@ Default clone cache:
 GitHub CLI is optional. Public HTTPS clone uses only `git`. Use
 `-InstallGitHubCli` on Windows or `--install-gh` on Linux/macOS when you want
 the script to install `gh` through the available platform package manager.
+
+Use `-Mode install` or `-Mode update` on Windows, and `--mode install` or
+`--mode update` on Linux/macOS, when you need to bypass auto-detection.
 
 From this repo:
 

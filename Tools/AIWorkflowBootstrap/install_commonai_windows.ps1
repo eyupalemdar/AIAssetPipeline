@@ -6,6 +6,8 @@ param(
     [string]$AIAssetPipelineRepo = "https://github.com/eyupalemdar/AIAssetPipeline.git",
     [string]$MCPToolkitRepo = "https://github.com/eyupalemdar/UnrealMCPToolkit.git",
     [string]$Profile = "commonui",
+    [ValidateSet("auto", "install", "update")]
+    [string]$Mode = "auto",
     [switch]$DryRun,
     [switch]$Force,
     [switch]$UseSsh,
@@ -49,6 +51,16 @@ $projectPath = Resolve-FullPath $Project
 if (-not (Test-Path -LiteralPath $projectPath)) {
     throw "Project path does not exist: $projectPath"
 }
+$projectItem = Get-Item -LiteralPath $projectPath
+if ($projectItem.PSIsContainer) {
+    $projectRootPath = $projectPath
+}
+elseif ([System.IO.Path]::GetExtension($projectPath) -eq ".uproject") {
+    $projectRootPath = Split-Path -Parent $projectPath
+}
+else {
+    throw "Project must be a UE project directory or .uproject file: $projectPath"
+}
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = Join-Path $env:LOCALAPPDATA "CommonAI\Repos"
@@ -79,25 +91,47 @@ if (-not (Test-Path -LiteralPath $bootstrap)) {
     throw "Bootstrap script not found: $bootstrap"
 }
 
+$targetBootstrap = Join-Path $projectRootPath "Tools\AIWorkflowBootstrap\bootstrap.py"
+$targetLock = Join-Path $projectRootPath "commonai.lock.json"
+$bootstrapCommand = $Mode.ToLowerInvariant()
+if ($bootstrapCommand -eq "auto") {
+    if ((Test-Path -LiteralPath $targetBootstrap) -or (Test-Path -LiteralPath $targetLock)) {
+        $bootstrapCommand = "update"
+    }
+    else {
+        $bootstrapCommand = "install"
+    }
+}
+
 $installArgs = @(
     $bootstrap,
-    "install",
-    "--project", $projectPath,
+    $bootstrapCommand,
+    "--project", $projectRootPath,
     "--asset-source-root", $assetRoot,
     "--mcp-source-root", $mcpRoot,
     "--profile", $Profile
 )
-if ($DryRun) { $installArgs += "--dry-run" }
+if ($DryRun) {
+    $installArgs += "--dry-run"
+}
+elseif ($bootstrapCommand -eq "update") {
+    $installArgs += "--apply"
+}
 if ($Force) { $installArgs += "--force" }
 
 & $python @installArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-if (-not $DryRun -and -not $SkipDoctor) {
-    & $python $bootstrap doctor --project $projectPath --strict
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $DryRun) {
+    if (-not (Test-Path -LiteralPath $targetBootstrap)) {
+        throw "Target bootstrap was not installed: $targetBootstrap"
+    }
+    if (-not $SkipDoctor) {
+        & $python $targetBootstrap doctor --project $projectRootPath --strict
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 }
 
 Write-Host ""
-Write-Host "CommonAI workflow install completed." -ForegroundColor Green
+Write-Host "CommonAI workflow $bootstrapCommand completed." -ForegroundColor Green
 Write-Host "Next: regenerate project files, rebuild the Editor target, then open Unreal Editor."
