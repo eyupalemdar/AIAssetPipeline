@@ -20,7 +20,7 @@ def _legacy_pipeline_from_source_intent(tspec: dict[str, Any]) -> dict[str, Any]
     spec_path = source_intent.get("assetPipelineSpec")
     manifest_path = source_intent.get("assetPipelineManifest") or source_intent.get("manifest")
     texture_package_path = source_intent.get("texturePackagePath")
-    if not spec_path and not manifest_path:
+    if not spec_path or not manifest_path:
         return None
     return {
         "id": "legacy-sourceIntent",
@@ -47,6 +47,21 @@ def _pipeline_entries(tspec: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _texture_package_paths(entry: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    singular = entry.get("texturePackagePath") or entry.get("texture_package_path")
+    if singular:
+        values.append(str(singular))
+
+    plural = entry.get("texturePackagePaths") or entry.get("texture_package_paths")
+    if isinstance(plural, list):
+        values.extend(str(item) for item in plural if str(item))
+    elif plural:
+        values.append(str(plural))
+
+    return list(dict.fromkeys(values))
+
+
 def validate_tspec_links(path_or_dir: Path, project_root: Path | str | None = None) -> dict[str, Any]:
     root = normalize_project_root(project_root, path_or_dir)
     files = _iter_tspec_files(path_or_dir)
@@ -56,7 +71,7 @@ def validate_tspec_links(path_or_dir: Path, project_root: Path | str | None = No
     for file_path in files:
         relative = rel(root, file_path.resolve())
         try:
-            tspec = json.loads(file_path.read_text(encoding="utf-8"))
+            tspec = json.loads(file_path.read_text(encoding="utf-8-sig"))
         except Exception as exc:
             failures.append(f"{relative}: invalid JSON - {exc}")
             continue
@@ -66,7 +81,7 @@ def validate_tspec_links(path_or_dir: Path, project_root: Path | str | None = No
             spec_ref = entry.get("spec") or entry.get("specPath")
             manifest_ref = entry.get("manifest") or entry.get("manifestPath")
             required_component_ids = entry.get("requiredComponentIds") or entry.get("required_component_ids") or []
-            texture_package_path = entry.get("texturePackagePath") or entry.get("texture_package_path")
+            texture_package_paths = _texture_package_paths(entry)
 
             if not spec_ref:
                 failures.append(f"{relative}: {label} missing spec path")
@@ -88,9 +103,9 @@ def validate_tspec_links(path_or_dir: Path, project_root: Path | str | None = No
                 continue
 
             try:
-                spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                spec = json.loads(spec_path.read_text(encoding="utf-8-sig"))
                 spec_warnings = validate_spec(spec, root)
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
                 manifest_warnings = validate_manifest(manifest)
             except Exception as exc:
                 failures.append(f"{relative}: {label} validation failed - {exc}")
@@ -101,11 +116,12 @@ def validate_tspec_links(path_or_dir: Path, project_root: Path | str | None = No
             if missing_ids:
                 failures.append(f"{relative}: {label} manifest missing required component ids: {', '.join(missing_ids)}")
 
-            if texture_package_path:
+            if texture_package_paths:
+                allowed_package_paths = set(texture_package_paths)
                 mismatched = [
                     str(item.get("component_id", ""))
                     for item in manifest.get("outputs", [])
-                    if str(item.get("ue_package_path", manifest.get("texture_package_path", ""))) != str(texture_package_path)
+                    if str(item.get("ue_package_path", manifest.get("texture_package_path", ""))) not in allowed_package_paths
                 ]
                 if mismatched:
                     failures.append(
@@ -120,6 +136,7 @@ def validate_tspec_links(path_or_dir: Path, project_root: Path | str | None = No
                     "manifest": rel(root, manifest_path.resolve()),
                     "component_count": len(output_ids),
                     "required_component_count": len(required_component_ids),
+                    "texture_package_paths": texture_package_paths,
                     "warnings": spec_warnings + manifest_warnings,
                 }
             )

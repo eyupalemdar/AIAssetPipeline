@@ -88,11 +88,20 @@ def _write_component(
     source_path = resolve_path(root, str(source_info["path"]))
     selected, selector_info = select_crop(load_rgba(source_path), component["selector"])
     target_size = _target_size(spec, component)
-    runtime = resize_premultiplied(
-        selected,
-        target_size,
-        int(spec.get("processing", {}).get("clear_outer_alpha_px", 1)),
-    )
+    processing_mode = str(component.get("processing_mode", "resize_premultiplied"))
+    if processing_mode in {"passthrough", "copy_exact"}:
+        if selected.size != target_size:
+            raise ValueError(
+                f"{component['component_id']} uses {processing_mode} but source size "
+                f"{selected.size} does not match target_size {target_size}"
+            )
+        runtime = selected
+    else:
+        runtime = resize_premultiplied(
+            selected,
+            target_size,
+            int(spec.get("processing", {}).get("clear_outer_alpha_px", 1)),
+        )
     runtime_file = runtime_dir / f"{component['runtime_asset_name']}.png"
     runtime.save(runtime_file)
     return _output_item(root, spec, component, source_info, runtime_file, selected.size, target_size, diagnostics(runtime), selector_info)
@@ -201,6 +210,7 @@ def _output_item(
         "z_order": int(component.get("z_order", 0)),
         "texture_type": component.get("texture_type", "color"),
         "diagnostics": component_diagnostics,
+        "alpha_contract_policy": component.get("alpha_contract_policy", {}),
         "note": component.get("note", ""),
     }
 
@@ -233,6 +243,7 @@ def _build_manifest(
     reviews: dict[str, str],
 ) -> dict[str, Any]:
     color_outputs = [item for item in outputs if item.get("texture_type") != "glow"]
+    waivers = _alpha_contract_waivers(outputs)
     alpha_contract = {
         "all_transparent_corners": all(item["diagnostics"]["transparent_corners"] for item in outputs),
         "all_transparent_outer_edges": all(item["diagnostics"]["edge_alpha_gt0"] == 0 for item in outputs),
@@ -244,14 +255,12 @@ def _build_manifest(
         "all_no_hidden_saturated_chroma": all(
             item["diagnostics"]["hidden_saturated_chroma_pixels_alpha_eq_0"] == 0 for item in outputs
         ),
-        "all_no_low_alpha_saturated_rgb_artifacts": all(
-            item["diagnostics"]["low_alpha_saturated_rgb_artifact_pixels"] == 0 for item in color_outputs
-        ),
-        "all_no_hidden_saturated_rgb_artifacts": all(
-            item["diagnostics"]["hidden_saturated_rgb_artifact_pixels_alpha_eq_0"] == 0 for item in color_outputs
-        ),
+        "all_no_low_alpha_saturated_rgb_artifacts": all(_rgb_artifact_ok(item, "low_alpha_saturated_rgb_artifact_pixels", "allow_low_alpha_saturated_rgb_artifacts") for item in color_outputs),
+        "all_no_hidden_saturated_rgb_artifacts": all(_rgb_artifact_ok(item, "hidden_saturated_rgb_artifact_pixels_alpha_eq_0", "allow_hidden_saturated_rgb_artifacts") for item in color_outputs),
         "component_count": len(outputs),
     }
+    if waivers:
+        alpha_contract["waivers"] = waivers
     expected = spec.get("alpha_contract", {}).get("expected_component_count")
     if expected is not None:
         alpha_contract["expected_component_count"] = int(expected)
@@ -292,3 +301,30 @@ def _build_manifest(
         "reviews": reviews,
         "alpha_contract": alpha_contract,
     }
+
+
+def _rgb_artifact_ok(item: dict[str, Any], diagnostic_key: str, policy_key: str) -> bool:
+    count = int(item["diagnostics"].get(diagnostic_key, 0))
+    if count == 0:
+        return True
+    policy = item.get("alpha_contract_policy", {})
+    return bool(isinstance(policy, dict) and policy.get(policy_key))
+
+
+def _alpha_contract_waivers(outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    waivers: list[dict[str, Any]] = []
+    for item in outputs:
+        policy = item.get("alpha_contract_policy", {})
+        if not isinstance(policy, dict):
+            continue
+        waived_fields = [key for key, value in policy.items() if key != "reason" and value]
+        if not waived_fields:
+            continue
+        waivers.append(
+            {
+                "component_id": item["component_id"],
+                "fields": waived_fields,
+                "reason": str(policy.get("reason", "Intentional texture data accepted by spec.")),
+            }
+        )
+    return waivers

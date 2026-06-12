@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -132,6 +133,125 @@ class AIAssetPipelineTests(unittest.TestCase):
         self.assertTrue(result["ok"], result["failures"])
         self.assertGreaterEqual(result["pipeline_count"], 1)
 
+    def test_tspec_links_accept_multiple_texture_package_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test.uproject").write_text("{}", encoding="utf-8")
+            prompt = root / "prompt.md"
+            prompt.write_text("fixture", encoding="utf-8")
+
+            for name, color in (("local.png", (48, 48, 48, 255)), ("shared.png", (96, 96, 96, 255))):
+                image = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+                for y in range(2, 6):
+                    for x in range(2, 6):
+                        image.putpixel((x, y), color)
+                image.save(root / name)
+
+            spec_path = root / "spec.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "$schema": "ai-asset-pipeline-spec-v1",
+                        "run_id": "multi_package",
+                        "validation_policy": "fail_closed",
+                        "runtime_output_dir": "runtime",
+                        "review_output_dir": "review",
+                        "source_art": [
+                            {
+                                "id": "local",
+                                "path": "local.png",
+                                "prompt_files": ["prompt.md"],
+                                "provenance": {"provider": "fixture", "model": "unit-test", "generation_id": "local-1"},
+                            },
+                            {
+                                "id": "shared",
+                                "path": "shared.png",
+                                "prompt_files": ["prompt.md"],
+                                "provenance": {"provider": "fixture", "model": "unit-test", "generation_id": "shared-1"},
+                            },
+                        ],
+                        "components": [
+                            {
+                                "component_id": "local_body",
+                                "source_art_id": "local",
+                                "selector": {"type": "full_image"},
+                                "draw_rect": [0, 0, 8, 8],
+                                "asset_suffix": "LocalBody",
+                                "runtime_asset_name": "T_LocalBody",
+                                "ue_package_path": "/Game/UI/Local",
+                                "ue_asset_name": "T_LocalBody",
+                                "texture_type": "color",
+                                "target_size": [8, 8],
+                            },
+                            {
+                                "component_id": "shared_mask",
+                                "source_art_id": "shared",
+                                "selector": {"type": "full_image"},
+                                "draw_rect": [0, 0, 8, 8],
+                                "asset_suffix": "SharedMask",
+                                "runtime_asset_name": "T_SharedMask",
+                                "ue_package_path": "/Game/UI/Shared",
+                                "ue_asset_name": "T_SharedMask",
+                                "texture_type": "mask",
+                                "target_size": [8, 8],
+                            },
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            packaged = package_spec(spec_path, project_root=root)
+            tspec_path = root / "screen.tspec.json"
+            tspec_path.write_text(
+                json.dumps(
+                    {
+                        "$schema": "tspec-v1",
+                        "screen": "MultiPackageFixture",
+                        "assetPipelines": [
+                            {
+                                "id": "multi_package",
+                                "spec": "spec.json",
+                                "manifest": packaged["manifest"],
+                                "texturePackagePaths": ["/Game/UI/Local", "/Game/UI/Shared"],
+                                "requiredComponentIds": ["local_body", "shared_mask"],
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            result = validate_tspec_links(tspec_path, project_root=root)
+            self.assertTrue(result["ok"], result["failures"])
+
+    def test_tspec_link_scan_tolerates_bom_and_incomplete_legacy_source_intent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test.uproject").write_text("{}", encoding="utf-8")
+            tspec_dir = root / "tspecs"
+            tspec_dir.mkdir()
+            (tspec_dir / "legacy.tspec.json").write_text(
+                "\ufeff" + json.dumps(
+                    {
+                        "$schema": "tspec-v1",
+                        "screen": "LegacyIncompleteSourceIntent",
+                        "sourceIntent": {
+                            "manifest": "Docs/old_manifest.json",
+                            "texturePackagePath": "/Game/UI/Legacy",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            result = validate_tspec_links(tspec_dir, project_root=root)
+            self.assertTrue(result["ok"], result["failures"])
+            self.assertEqual(result["pipeline_count"], 0)
+
     def test_smoke_fixture_packages_and_plans_import(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -143,6 +263,69 @@ class AIAssetPipelineTests(unittest.TestCase):
             planned = plan_import(root / packaged["manifest"], project_root=root)
             self.assertTrue(planned["ok"])
             self.assertEqual(planned["imports"][0]["ue_asset_path"], "/Game/UI/_AIProbe/AIAssetPipelineSmoke/Textures/T_AIAssetPipelineSmoke_Badge")
+
+    def test_passthrough_texture_can_waive_intentional_rgb_alpha_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test.uproject").write_text("{}", encoding="utf-8")
+            source = root / "atlas.png"
+            image = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+            image.putpixel((3, 3), (220, 40, 30, 96))
+            image.putpixel((4, 3), (220, 40, 30, 255))
+            image.save(source)
+            prompt = root / "prompt.md"
+            prompt.write_text("procedural atlas", encoding="utf-8")
+            spec_path = root / "spec.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "$schema": "ai-asset-pipeline-spec-v1",
+                        "run_id": "passthrough_texture",
+                        "validation_policy": "fail_closed",
+                        "runtime_output_dir": "runtime",
+                        "review_output_dir": "review",
+                        "source_art": [
+                            {
+                                "id": "atlas",
+                                "path": "atlas.png",
+                                "prompt_files": ["prompt.md"],
+                                "provenance": {
+                                    "provider": "fixture",
+                                    "model": "unit-test",
+                                    "generation_id": "atlas-1",
+                                },
+                            }
+                        ],
+                        "components": [
+                            {
+                                "component_id": "atlas",
+                                "source_art_id": "atlas",
+                                "selector": {"type": "full_image"},
+                                "draw_rect": [0, 0, 8, 8],
+                                "asset_suffix": "Atlas",
+                                "runtime_asset_name": "T_Atlas",
+                                "ue_package_path": "/Game/UI/_AIProbe/Atlas",
+                                "ue_asset_name": "T_Atlas",
+                                "texture_type": "color",
+                                "target_size": [8, 8],
+                                "processing_mode": "passthrough",
+                                "alpha_contract_policy": {
+                                    "allow_low_alpha_saturated_rgb_artifacts": True,
+                                    "reason": "Intentional antialiased colored atlas edge.",
+                                },
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            packaged = package_spec(spec_path, project_root=root)
+            self.assertTrue(packaged["ok"])
+            manifest = json.loads((root / packaged["manifest"]).read_text(encoding="utf-8"))
+            self.assertTrue(manifest["alpha_contract"]["all_no_low_alpha_saturated_rgb_artifacts"])
+            self.assertEqual(manifest["alpha_contract"]["waivers"][0]["component_id"], "atlas")
 
 
 if __name__ == "__main__":

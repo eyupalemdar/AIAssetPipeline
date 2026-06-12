@@ -84,6 +84,19 @@
         "ue_package_path": { "type": "string", "pattern": "^/Game/" },
         "ue_asset_name": { "type": "string", "minLength": 1 },
         "texture_type": { "enum": ["color", "mask", "glow", "icon"] },
+        "processing_mode": {
+          "enum": ["resize_premultiplied", "passthrough", "copy_exact"],
+          "default": "resize_premultiplied"
+        },
+        "alpha_contract_policy": {
+          "type": "object",
+          "properties": {
+            "allow_low_alpha_saturated_rgb_artifacts": { "type": "boolean" },
+            "allow_hidden_saturated_rgb_artifacts": { "type": "boolean" },
+            "reason": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
         "target_size": {
           "type": "array",
           "prefixItems": [

@@ -8,7 +8,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "spec", "manifest", "requiredComponentIds", "texturePackagePath"],
+        "required": ["id", "spec", "manifest", "requiredComponentIds"],
+        "anyOf": [
+          { "required": ["texturePackagePath"] },
+          { "required": ["texturePackagePaths"] }
+        ],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "spec": { "type": "string", "minLength": 1 },
@@ -18,6 +22,12 @@
             "items": { "type": "string", "minLength": 1 }
           },
           "texturePackagePath": { "type": "string", "pattern": "^/Game/" },
+          "texturePackagePaths": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^/Game/" },
+            "minItems": 1,
+            "uniqueItems": true
+          },
           "notes": { "type": "string" }
         },
         "additionalProperties": true

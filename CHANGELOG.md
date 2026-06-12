@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7 - Texture Contract Waivers and Multi-Package TSpec Links
+
+- Added `processing_mode` support for exact/pass-through texture packaging.
+- Added explicit alpha-contract waiver metadata for intentional atlas/mask RGB
+  data in transparent or low-alpha pixels.
+- Added `texturePackagePaths` validation for TSpecs whose manifests import into
+  multiple UE package folders.
+- Made TSpec asset-link scanning tolerant of UTF-8 BOM files and incomplete
+  legacy `sourceIntent` asset metadata.
+
 ## 0.1.6 - Persistent Adopted Workflow Files
 
 - Lock entries now mark adopted project-local files explicitly, so later

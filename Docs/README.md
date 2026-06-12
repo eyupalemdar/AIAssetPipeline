@@ -50,5 +50,8 @@ TSpecs may include a top-level optional `assetPipelines` array:
 }
 ```
 
+Use `texturePackagePaths` instead when one manifest imports into multiple UE
+packages, for example a skin-local texture folder plus a shared texture folder.
+
 V1 validates links only. TSpec remains owned by the MCPToolkit UI transfer
 workflow, and no TSpec-to-WBP mutation is performed by this plugin.
