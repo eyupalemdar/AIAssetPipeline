@@ -85,8 +85,98 @@
         "ue_asset_name": { "type": "string", "minLength": 1 },
         "texture_type": { "enum": ["color", "mask", "glow", "icon"] },
         "processing_mode": {
-          "enum": ["resize_premultiplied", "passthrough", "copy_exact"],
+          "enum": [
+            "resize_premultiplied",
+            "resize",
+            "fit_aspect_premultiplied",
+            "contain_premultiplied",
+            "soft_glow_resize",
+            "nine_slice_prerender",
+            "approved_source_target_size",
+            "vector_sdf_icon",
+            "source_quality_clean",
+            "passthrough",
+            "copy_exact"
+          ],
           "default": "resize_premultiplied"
+        },
+        "soft_glow_resize": {
+          "type": "object",
+          "properties": {
+            "alpha_median_size": { "type": "integer", "minimum": 0 },
+            "alpha_blur_radius": { "type": "number", "minimum": 0 },
+            "alpha_low_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_high_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_gamma": { "type": "number", "exclusiveMinimum": 0 },
+            "alpha_scale": { "type": "number", "minimum": 0 },
+            "alpha_cap": { "type": "number", "minimum": 0, "maximum": 1 },
+            "border_fade_px": { "type": "number", "minimum": 0 },
+            "brightness_blur_radius": { "type": "number", "minimum": 0 },
+            "palette": {
+              "type": "object",
+              "properties": {
+                "outer": { "$ref": "#/$defs/rgbTriplet" },
+                "body": { "$ref": "#/$defs/rgbTriplet" },
+                "core": { "$ref": "#/$defs/rgbTriplet" },
+                "body_edge": { "$ref": "#/$defs/floatPair" },
+                "core_edge": { "$ref": "#/$defs/floatPair" },
+                "core_mix": { "type": "number", "minimum": 0, "maximum": 1 }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        },
+        "nine_slice": {
+          "type": "object",
+          "properties": {
+            "source_margin": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "integer", "minimum": 0 },
+                { "type": "integer", "minimum": 0 },
+                { "type": "integer", "minimum": 0 },
+                { "type": "integer", "minimum": 0 }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "target_margin": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "integer", "minimum": 0 },
+                { "type": "integer", "minimum": 0 },
+                { "type": "integer", "minimum": 0 },
+                { "type": "integer", "minimum": 0 }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": true
+        },
+        "vector_icon": {
+          "type": "object",
+          "properties": {
+            "glyph": {
+              "enum": [
+                "mic_unmuted",
+                "microphone_unmuted",
+                "mic_muted",
+                "microphone_muted",
+                "add_friend",
+                "person_plus",
+                "self_balance",
+                "seat_balance"
+              ]
+            },
+            "supersample": { "type": "integer", "minimum": 3 },
+            "bevel_edge_px": { "type": "number", "minimum": 0 },
+            "alpha_floor": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 },
+            "clear_outer_alpha_px": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
         },
         "alpha_contract_policy": {
           "type": "object",
@@ -108,6 +198,25 @@
         }
       },
       "additionalProperties": true
+    },
+    "rgbTriplet": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "integer", "minimum": 0, "maximum": 255 },
+        { "type": "integer", "minimum": 0, "maximum": 255 },
+        { "type": "integer", "minimum": 0, "maximum": 255 }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "floatPair": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ],
+      "minItems": 2,
+      "maxItems": 2
     }
   },
   "additionalProperties": true

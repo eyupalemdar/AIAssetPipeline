@@ -139,6 +139,12 @@ def _validate_component(
         _require(component.get("type") == "derived_glow_from_assembly", f"{component_id} uses unsupported derived type")
         _require(isinstance(component.get("source_component_ids"), list), f"{component_id} missing source_component_ids")
     else:
+        processing_mode = str(component.get("processing_mode", "resize_premultiplied"))
+        if processing_mode == "vector_sdf_icon":
+            vector_icon = component.get("vector_icon")
+            _require(isinstance(vector_icon, dict), f"{component_id} missing vector_icon object")
+            _require(bool(str(vector_icon.get("glyph", ""))), f"{component_id} vector_icon missing glyph")
+            return
         source_art_id = str(component.get("source_art_id", ""))
         _require(source_art_id in source_ids, f"{component_id} references unknown source_art_id: {source_art_id}")
         _require(isinstance(component.get("selector"), dict), f"{component_id} missing selector object")

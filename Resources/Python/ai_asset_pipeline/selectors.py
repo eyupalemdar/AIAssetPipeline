@@ -31,6 +31,11 @@ def _box_key(sort: str):
 
 def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Image, dict[str, object]]:
     selector_type = selector.get("type", "alpha_largest")
+
+    if selector_type == "full_image_raw":
+        rgba = source.convert("RGBA")
+        return rgba, {"selector": selector_type, "selected_box": [0, 0, rgba.width, rgba.height]}
+
     cleaned = chroma_to_alpha(source)
 
     if selector_type == "full_image":
@@ -90,4 +95,3 @@ def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Im
         }
 
     raise ValueError(f"Unsupported selector type: {selector_type}")
-

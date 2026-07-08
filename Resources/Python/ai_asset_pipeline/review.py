@@ -5,6 +5,20 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from .image_ops import (
+    chroma_key_mask,
+    despill_visible_magenta,
+    hidden_saturated_chroma_mask,
+    hidden_saturated_rgb_artifact_mask,
+    low_alpha_saturated_chroma_fringe_mask,
+    low_alpha_saturated_rgb_artifact_mask,
+    neutralize_hidden_artifacts,
+    resize_premultiplied,
+    visible_magenta_fringe_mask,
+)
+
+import numpy as np
+
 
 def make_text(draw: ImageDraw.ImageDraw, text: str, xy: tuple[int, int], size: int, fill: tuple[int, int, int, int]) -> None:
     try:
@@ -24,9 +38,48 @@ def save_checker(image: Image.Image, dest: Path, step: int = 16) -> None:
     Image.alpha_composite(checker, image).convert("RGB").save(dest)
 
 
+def save_alpha_mask(image: Image.Image, dest: Path) -> None:
+    alpha = image.convert("RGBA").getchannel("A")
+    alpha.convert("RGB").save(dest)
+
+
+def save_matte_issue_overlay(image: Image.Image, dest: Path) -> None:
+    rgba = image.convert("RGBA")
+    arr = np.asarray(rgba, dtype=np.uint8)
+    alpha = arr[:, :, 3]
+    visible_chroma = (alpha > 8) & chroma_key_mask(arr[:, :, :3])
+    visible_magenta = visible_magenta_fringe_mask(arr)
+    low_alpha_chroma = low_alpha_saturated_chroma_fringe_mask(arr)
+    hidden_chroma = hidden_saturated_chroma_mask(arr)
+    low_alpha_rgb = low_alpha_saturated_rgb_artifact_mask(arr)
+    hidden_rgb = hidden_saturated_rgb_artifact_mask(arr)
+
+    base = Image.new("RGBA", rgba.size, (20, 22, 26, 255))
+    draw = ImageDraw.Draw(base)
+    step = 16
+    for y in range(0, rgba.height, step):
+        for x in range(0, rgba.width, step):
+            if ((x // step) + (y // step)) % 2 == 0:
+                draw.rectangle([x, y, x + step - 1, y + step - 1], fill=(44, 48, 56, 255))
+    base = Image.alpha_composite(base, rgba)
+    overlay = np.asarray(base.convert("RGBA"), dtype=np.uint8).copy()
+    problem = visible_chroma | visible_magenta | low_alpha_chroma | hidden_chroma | low_alpha_rgb | hidden_rgb
+    overlay[problem] = [255, 40, 220, 255]
+    Image.fromarray(overlay, "RGBA").convert("RGB").save(dest)
+
+
+def clean_review_matte(image: Image.Image) -> Image.Image:
+    arr = np.asarray(image.convert("RGBA"), dtype=np.uint8)
+    arr = despill_visible_magenta(arr)
+    arr = neutralize_hidden_artifacts(arr)
+    return Image.fromarray(arr, "RGBA")
+
+
 def load_runtime(root: Path, item: dict[str, Any], draw_size: tuple[int, int]) -> Image.Image:
     image = Image.open(root / str(item["runtime_file"])).convert("RGBA")
-    return image.resize(draw_size, Image.Resampling.LANCZOS)
+    if image.size == draw_size:
+        return image
+    return resize_premultiplied(image, draw_size, 0)
 
 
 def output_by_id(outputs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -58,7 +111,16 @@ def make_contact_sheet(root: Path, outputs: list[dict[str, Any]], dest: Path) ->
     tiles: list[Image.Image] = []
     for item in outputs:
         image = Image.open(root / str(item["runtime_file"])).convert("RGBA")
-        image.thumbnail((150, 120), Image.Resampling.LANCZOS)
+        scale = min(150 / image.width, 120 / image.height, 1.0)
+        if scale < 1.0:
+            image = resize_premultiplied(
+                image,
+                (
+                    max(1, int(round(image.width * scale))),
+                    max(1, int(round(image.height * scale))),
+                ),
+                0,
+            )
         tile = Image.new("RGBA", (210, 174), (18, 20, 24, 255))
         tile.alpha_composite(image, ((210 - image.width) // 2, 12))
         draw = ImageDraw.Draw(tile)
@@ -79,4 +141,3 @@ def gaussian_glow_from_alpha(base: Image.Image, tint: list[int], blur_radius: in
     glow = Image.new("RGBA", base.size, tuple(tint))
     glow.putalpha(glow_alpha)
     return glow
-
