@@ -13,6 +13,11 @@ only as `source_art[].provenance` metadata.
 - JSON spec and manifest contracts for source art ingestion.
 - Python packaging CLI for alpha cleanup, component selection, runtime PNG
   output, review sheets, and import planning.
+- Canonical rounded-rectangle/circle masks, linear-light premultiplied
+  aspect-preserving color packaging, byte-identical shared-alpha contracts,
+  and true single-channel canonical shadow masks.
+- Per-component fail-closed quality gates and guarded UE texture settings for
+  UI color and grayscale mask imports.
 - Unreal Editor extension commands registered through MCPToolkit:
   `asset_pipeline_status`, `asset_pipeline_import_manifest`, and
   `asset_pipeline_verify_assets`.

@@ -41,6 +41,29 @@
         "additionalProperties": true
       }
     },
+    "canonical_shapes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/canonicalShape" }
+    },
+    "shared_alpha_contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "component_ids"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "component_ids": {
+            "type": "array",
+            "minItems": 2,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "canonical_shape_id": { "type": "string", "minLength": 1 },
+          "require_identical_bytes": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": true
+      }
+    },
     "components": {
       "type": "array",
       "minItems": 1,
@@ -83,7 +106,7 @@
         "runtime_asset_name": { "type": "string", "minLength": 1 },
         "ue_package_path": { "type": "string", "pattern": "^/Game/" },
         "ue_asset_name": { "type": "string", "minLength": 1 },
-        "texture_type": { "enum": ["color", "mask", "glow", "icon"] },
+        "texture_type": { "enum": ["color", "mask", "packed_mask", "glow", "icon"] },
         "processing_mode": {
           "enum": [
             "resize_premultiplied",
@@ -91,12 +114,22 @@
             "fit_aspect_premultiplied",
             "contain_premultiplied",
             "soft_glow_resize",
+            "luma_mask_resize",
             "nine_slice_prerender",
             "approved_source_target_size",
+            "reference_color_pill_resize",
+            "edge_particle_extract_resize",
+            "nameplate_timer_aaa_fill_resize",
+            "nameplate_timer_aaa_edge_resize",
+            "nameplate_timer_aaa_edge_flipbook_atlas",
+            "nameplate_timer_image1_body_luma",
+            "nameplate_timer_image1_edge_flipbook_atlas",
             "vector_sdf_icon",
             "source_quality_clean",
             "passthrough",
             "copy_exact"
+            ,"canonical_shape_color"
+            ,"canonical_shape_shadow_mask"
           ],
           "default": "resize_premultiplied"
         },
@@ -124,6 +157,170 @@
               },
               "additionalProperties": true
             }
+          },
+          "additionalProperties": true
+        },
+        "luma_mask_resize": {
+          "type": "object",
+          "properties": {
+            "luma_gamma": { "type": "number", "exclusiveMinimum": 0 },
+            "luma_scale": { "type": "number", "minimum": 0 },
+            "luma_floor": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_scale": { "type": "number", "minimum": 0 },
+            "alpha_cap": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "reference_color_pill_resize": {
+          "type": "object",
+          "properties": {
+            "outer_box": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "number" },
+                { "type": "number" },
+                { "type": "number" },
+                { "type": "number" }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "radius": { "type": "number", "minimum": 0 },
+            "supersample": { "type": "integer", "minimum": 3 },
+            "edge_blur_px": { "type": "number", "minimum": 0 },
+            "alpha_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "min_visible_alpha": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "edge_particle_extract_resize": {
+          "type": "object",
+          "properties": {
+            "source_region_width_px": { "type": "integer", "minimum": 1 },
+            "source_right_pad_px": { "type": "integer", "minimum": 0 },
+            "source_vertical_pad_px": { "type": "integer", "minimum": 0 },
+            "x_fade_start": { "type": "number", "minimum": 0, "maximum": 1 },
+            "x_fade_end": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_gamma": { "type": "number", "exclusiveMinimum": 0 },
+            "alpha_scale": { "type": "number", "minimum": 0 },
+            "min_alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": true
+        },
+        "nameplate_timer_aaa_fill_resize": {
+          "type": "object",
+          "properties": {
+            "alpha_bbox_pad_px": { "type": "integer", "minimum": 0 },
+            "aspect_ratio_tolerance_pct": { "type": "number", "minimum": 0 },
+            "min_visible_alpha": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_floor_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "nameplate_timer_aaa_edge_resize": {
+          "type": "object",
+          "properties": {
+            "alpha_bbox_pad_px": { "type": "integer", "minimum": 0 },
+            "aspect_ratio_tolerance_pct": { "type": "number", "minimum": 0 },
+            "min_visible_alpha": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_floor_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "nameplate_timer_aaa_edge_flipbook_atlas": {
+          "type": "object",
+          "properties": {
+            "frame_size": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "integer", "minimum": 1 },
+                { "type": "integer", "minimum": 1 }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "columns": { "type": "integer", "minimum": 1 },
+            "rows": { "type": "integer", "minimum": 1 },
+            "frame_count": { "type": "integer", "minimum": 1 },
+            "alpha_bbox_pad_px": { "type": "integer", "minimum": 0 },
+            "aspect_ratio_tolerance_pct": { "type": "number", "minimum": 0 },
+            "min_visible_alpha": { "type": "number", "minimum": 0, "maximum": 1 },
+            "alpha_floor_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 },
+            "background_max_rgb_cutoff": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "channel_min_pixels": { "type": "integer", "minimum": 0 },
+            "alpha_min_pixels": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "nameplate_timer_image1_body_luma": {
+          "type": "object",
+          "properties": {
+            "row_index": { "type": "integer", "minimum": 0 },
+            "component_min_area": { "type": "integer", "minimum": 1 },
+            "horizontal_inset_pct": { "type": "number", "minimum": 0, "maximum": 0.25 },
+            "vertical_inset_pct": { "type": "number", "minimum": 0, "maximum": 0.35 },
+            "corner_radius_pct": { "type": "number", "minimum": 0.1, "maximum": 0.7 },
+            "luma_gamma": { "type": "number", "exclusiveMinimum": 0 },
+            "luma_scale": { "type": "number", "minimum": 0 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "nameplate_timer_image1_edge_flipbook_atlas": {
+          "type": "object",
+          "properties": {
+            "frame_size": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "integer", "minimum": 1 },
+                { "type": "integer", "minimum": 1 }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "columns": { "type": "integer", "minimum": 1 },
+            "rows": { "type": "integer", "minimum": 1 },
+            "frame_count": { "type": "integer", "minimum": 1 },
+            "row_indices": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 }
+            },
+            "component_min_area": { "type": "integer", "minimum": 1 },
+            "boundary_left_px": { "type": "integer", "minimum": 1 },
+            "boundary_right_px": { "type": "integer", "minimum": 1 },
+            "vertical_pad_px": { "type": "integer", "minimum": 0 },
+            "alpha_floor_cutoff": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transparent_rgb_dilation": { "type": "integer", "minimum": 0 },
+            "aspect_ratio_tolerance_pct": { "type": "number", "minimum": 0 },
+            "channel_min_pixels": { "type": "integer", "minimum": 0 },
+            "alpha_min_pixels": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "timer_boundary_diagnostics": {
+          "type": ["object", "boolean"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "alpha_threshold": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "dark_alpha_min": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "dark_luma_max": { "type": "number", "minimum": 0, "maximum": 255 },
+            "dark_rgb_max": { "type": "number", "minimum": 0, "maximum": 255 },
+            "dark_right_band_width_px": { "type": "integer", "minimum": 1 },
+            "expected_boundary_x_px": { "type": "number", "minimum": 0 },
+            "expected_boundary_x_pct": { "type": "number", "minimum": 0, "maximum": 1 },
+            "boundary_tolerance_px": { "type": "number", "minimum": 0 },
+            "require_boundary_face": { "type": "boolean" },
+            "boundary_face_x_pct": { "type": "number", "minimum": 0, "maximum": 1 },
+            "boundary_face_alpha_min": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "boundary_face_left_width_px": { "type": "number", "minimum": 0 },
+            "boundary_face_right_width_px": { "type": "number", "minimum": 0 },
+            "boundary_face_min_left_pixels": { "type": "integer", "minimum": 0 },
+            "boundary_face_min_window_pixels": { "type": "integer", "minimum": 0 }
           },
           "additionalProperties": true
         },
@@ -187,6 +384,37 @@
           },
           "additionalProperties": true
         },
+        "canonical_shape_id": { "type": "string", "minLength": 1 },
+        "canonical_shape_color": {
+          "type": "object",
+          "properties": {
+            "rgb_repair_inner_band_px": { "type": "number", "minimum": 0 },
+            "tangential_blur_px": { "type": "number", "minimum": 0 },
+            "directional_sidewall_grade": {
+              "type": "object",
+              "properties": {
+                "right_width_px": { "type": "integer", "minimum": 0 },
+                "bottom_height_px": { "type": "integer", "minimum": 0 },
+                "right_delta_l": { "type": "number", "maximum": 0 },
+                "bottom_delta_l": { "type": "number", "maximum": 0 },
+                "delta_b_offset": { "type": "number", "maximum": 0 },
+                "inner_feather_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        },
+        "canonical_shape_shadow_mask": {
+          "type": "object",
+          "properties": {
+            "blur_radius_px": { "type": "number", "minimum": 0 },
+            "clear_outer_px": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": true
+        },
+        "quality_gates": { "$ref": "#/$defs/qualityGates" },
+        "ue_texture": { "$ref": "#/$defs/ueTexture" },
         "target_size": {
           "type": "array",
           "prefixItems": [
@@ -208,6 +436,66 @@
       ],
       "minItems": 3,
       "maxItems": 3
+    },
+    "canonicalShape": {
+      "type": "object",
+      "required": ["id", "type", "canvas_size", "bbox"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["rounded_rectangle", "circle"] },
+        "canvas_size": {
+          "type": "array",
+          "prefixItems": [{ "type": "integer", "minimum": 1 }, { "type": "integer", "minimum": 1 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "bbox": {
+          "type": "array",
+          "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 1 }, { "type": "integer", "minimum": 1 }],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "radius_px": { "type": "number", "minimum": 0 },
+        "supersample": { "type": "integer", "minimum": 1, "default": 4 }
+      },
+      "additionalProperties": true
+    },
+    "qualityGates": {
+      "type": "object",
+      "properties": {
+        "blocking": { "type": "boolean", "default": true },
+        "require_single_channel": { "type": "boolean" },
+        "require_outer_border_zero": { "type": "boolean" },
+        "require_canonical_alpha_exact": { "type": "boolean" },
+        "expected_alpha_bbox": {
+          "type": "array",
+          "prefixItems": [{ "type": "integer" }, { "type": "integer" }, { "type": "integer" }, { "type": "integer" }],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "alpha_bbox_threshold": { "type": "integer", "minimum": 0, "maximum": 254 },
+        "alpha_bbox_tolerance_px": { "type": "integer", "minimum": 0 },
+        "max_radial_deviation_px": { "type": "number", "minimum": 0 },
+        "max_outer_ring_delta_e_p99": { "type": "number", "minimum": 0 },
+        "outer_ring_width_px": { "type": "number", "exclusiveMinimum": 0 },
+        "lab_region_deltas": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      },
+      "additionalProperties": true
+    },
+    "ueTexture": {
+      "type": "object",
+      "properties": {
+        "compression": { "enum": ["UserInterface2D", "Grayscale", "Masks"] },
+        "source_format": { "enum": ["auto", "TSF_G8"] },
+        "srgb": { "type": "boolean" },
+        "mip_gen": { "const": "NoMipmaps" },
+        "lod_group": { "const": "UI" },
+        "address_x": { "const": "Clamp" },
+        "address_y": { "const": "Clamp" },
+        "filter": { "const": "Bilinear" },
+        "never_stream": { "const": true }
+      },
+      "additionalProperties": true
     },
     "floatPair": {
       "type": "array",

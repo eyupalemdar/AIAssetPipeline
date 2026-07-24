@@ -92,6 +92,9 @@ def plan_import(manifest_path: Path, project_root: Path | str | None = None, for
         asset_name = str(item["ue_asset_name"])
         disk_asset = root / "Content" / package_path.removeprefix("/Game/") / f"{asset_name}.uasset"
         texture_type = str(item.get("texture_type", "color"))
+        ue_texture = item.get("ue_texture", {})
+        if not isinstance(ue_texture, dict):
+            ue_texture = {}
         planned.append(
             {
                 "component_id": item.get("component_id", ""),
@@ -105,10 +108,15 @@ def plan_import(manifest_path: Path, project_root: Path | str | None = None, for
                     "source_path": str(source_path).replace("\\", "/"),
                     "package_path": package_path,
                     "asset_name": asset_name,
-                    "compression": "UserInterface2D",
-                    "srgb": texture_type != "mask",
-                    "mip_gen": "NoMipmaps",
-                    "lod_group": "UI",
+                    "compression": str(ue_texture.get("compression", "UserInterface2D")),
+                    "source_format": str(ue_texture.get("source_format", "auto")),
+                    "srgb": bool(ue_texture.get("srgb", texture_type not in {"mask", "packed_mask"})),
+                    "mip_gen": str(ue_texture.get("mip_gen", "NoMipmaps")),
+                    "lod_group": str(ue_texture.get("lod_group", "UI")),
+                    "address_x": str(ue_texture.get("address_x", "Clamp")),
+                    "address_y": str(ue_texture.get("address_y", "Clamp")),
+                    "filter": str(ue_texture.get("filter", "Bilinear")),
+                    "never_stream": bool(ue_texture.get("never_stream", True)),
                 },
             }
         )

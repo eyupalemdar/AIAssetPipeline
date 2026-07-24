@@ -47,13 +47,61 @@
             "minItems": 2,
             "maxItems": 2
           },
-          "texture_type": { "enum": ["color", "mask", "glow", "icon"] },
+          "texture_type": { "enum": ["color", "mask", "packed_mask", "glow", "icon"] },
+          "canonical_shape_id": { "type": "string" },
+          "canonical_shape": { "type": "object" },
+          "quality_gates": {
+            "type": "object",
+            "required": ["configured", "all_pass", "results"],
+            "properties": {
+              "configured": { "type": "boolean" },
+              "blocking": { "type": "boolean" },
+              "all_pass": { "type": "boolean" },
+              "results": { "type": "object" }
+            }
+          },
+          "ue_texture": {
+            "type": "object",
+            "required": ["compression", "source_format", "srgb", "mip_gen", "lod_group", "address_x", "address_y", "filter", "never_stream"]
+          },
           "diagnostics": { "type": "object" }
         },
         "additionalProperties": true
       }
     },
     "reviews": { "type": "object", "additionalProperties": true },
+    "canonical_shapes": { "type": "array" },
+    "canonical_shape_contract": {
+      "type": "object",
+      "properties": {
+        "all_shapes_resolved": { "const": true },
+        "all_canonical_alpha_exact": { "const": true },
+        "all_linear_light_premultiplied_aspect_preserving": { "const": true }
+      }
+    },
+    "shared_alpha_contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "component_ids", "alpha_bytes_identical", "pass"],
+        "properties": {
+          "alpha_bytes_identical": { "const": true },
+          "pass": { "const": true }
+        }
+      }
+    },
+    "quality_contract": {
+      "type": "object",
+      "properties": {
+        "blocking_component_count": { "type": "integer", "minimum": 0 },
+        "all_quality_gates_pass": { "const": true },
+        "informational_failure_component_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ue_texture_contract": {
+      "type": "object",
+      "properties": { "all_ue_texture_settings_valid": { "const": true } }
+    },
     "alpha_contract": {
       "type": "object",
       "required": [
@@ -76,7 +124,16 @@
         "all_no_hidden_saturated_chroma": { "const": true },
         "all_no_low_alpha_saturated_rgb_artifacts": { "const": true },
         "all_no_hidden_saturated_rgb_artifacts": { "const": true },
+        "all_no_timer_dark_right_edge_band": { "const": true },
+        "all_timer_edge_boundary_within_tolerance": { "const": true },
+        "all_timer_edge_has_boundary_face": { "const": true },
+        "all_nameplate_timer_aaa_aspect_ratio_within_tolerance": { "const": true },
+        "all_nameplate_timer_aaa_final_runtime_safe": { "const": true },
+        "all_nameplate_timer_aaa_edge_flipbook_contract": { "const": true },
+        "timer_boundary_component_count": { "type": "integer", "minimum": 1 },
+        "nameplate_timer_aaa_component_count": { "type": "integer", "minimum": 1 },
         "component_count": { "type": "integer", "minimum": 1 }
+        ,"all_shared_alpha_contracts_pass": { "const": true }
       },
       "additionalProperties": true
     }

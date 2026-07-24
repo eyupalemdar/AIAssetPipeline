@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.8 - Canonical Shapes and Fail-Closed Texture Quality
+
+- Added reusable rounded-rectangle and circle `canonical_shapes`, component
+  `canonical_shape_id` references, linear-light premultiplied
+  `canonical_shape_color`, and true single-channel
+  `canonical_shape_shadow_mask` processing.
+- Added byte-identical `shared_alpha_contracts`, component `quality_gates`, Lab
+  region checks, circle/ring diagnostics, and fail-closed manifest contracts.
+- Added component `ue_texture` settings with guarded UI/Grayscale import,
+  Clamp, Bilinear, NoMipmaps, UI LOD, sRGB policy, and NeverStream verification.
+- Added optional canonical-color directional sidewall grading relative to the
+  central face Lab color, plus explicit non-blocking review-only quality gates;
+  production gates remain blocking by default.
+
 ## 0.1.7 - Texture Contract Waivers and Multi-Package TSpec Links
 
 - Added `processing_mode` support for exact/pass-through texture packaging.

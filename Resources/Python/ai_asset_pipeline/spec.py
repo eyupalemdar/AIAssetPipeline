@@ -112,12 +112,55 @@ def validate_spec(spec: dict[str, Any], root: Path) -> list[str]:
             for field in ("provider", "model", "generation_id"):
                 _require(bool(str(provenance.get(field, ""))), f"source_art {source_id} provenance missing {field}")
 
+    canonical_shapes = _validate_canonical_shapes(spec.get("canonical_shapes", []))
     component_ids: set[str] = set()
     for component in spec.get("components", []):
-        _validate_component(component, source_ids, component_ids)
+        _validate_component(component, source_ids, component_ids, canonical_shapes=canonical_shapes)
     for component in spec.get("derived_components", []):
-        _validate_component(component, source_ids, component_ids, derived=True)
+        _validate_component(component, source_ids, component_ids, derived=True, canonical_shapes=canonical_shapes)
+    shared_ids: set[str] = set()
+    for contract in spec.get("shared_alpha_contracts", []):
+        _require(isinstance(contract, dict), "shared_alpha_contracts entries must be objects")
+        contract_id = str(contract.get("id", ""))
+        _require(bool(contract_id), "shared alpha contract missing id")
+        _require(contract_id not in shared_ids, f"duplicate shared alpha contract id: {contract_id}")
+        shared_ids.add(contract_id)
+        members = contract.get("component_ids")
+        _require(isinstance(members, list) and len(members) >= 2, f"{contract_id} requires at least two component_ids")
+        _require(len(set(str(value) for value in members)) == len(members), f"{contract_id} has duplicate component_ids")
+        for component_id in members:
+            _require(str(component_id) in component_ids, f"{contract_id} references unknown component_id: {component_id}")
+        shape_id = str(contract.get("canonical_shape_id", ""))
+        if shape_id:
+            _require(shape_id in canonical_shapes, f"{contract_id} references unknown canonical_shape_id: {shape_id}")
     return warnings
+
+
+def _validate_canonical_shapes(value: Any) -> dict[str, dict[str, Any]]:
+    _require(isinstance(value, list), "canonical_shapes must be an array")
+    shapes: dict[str, dict[str, Any]] = {}
+    for shape in value:
+        _require(isinstance(shape, dict), "canonical_shapes entries must be objects")
+        shape_id = str(shape.get("id", ""))
+        _require(bool(shape_id), "canonical shape missing id")
+        _require(shape_id not in shapes, f"duplicate canonical shape id: {shape_id}")
+        _require(str(shape.get("type", "")) in {"rounded_rectangle", "circle"}, f"{shape_id} has unsupported type")
+        canvas = shape.get("canvas_size")
+        bbox = shape.get("bbox")
+        _require(isinstance(canvas, list) and len(canvas) == 2, f"{shape_id} needs canvas_size [w,h]")
+        _require(isinstance(bbox, list) and len(bbox) == 4, f"{shape_id} needs bbox [x0,y0,x1,y1)")
+        width, height = (int(value) for value in canvas)
+        x0, y0, x1, y1 = (int(value) for value in bbox)
+        _require(width > 0 and height > 0, f"{shape_id} canvas_size must be positive")
+        _require(0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height, f"{shape_id} bbox must be inside canvas")
+        if str(shape.get("type")) == "circle":
+            _require((x1 - x0) == (y1 - y0), f"{shape_id} circle bbox must be square")
+        if str(shape.get("type")) == "rounded_rectangle":
+            radius = float(shape.get("radius_px", -1))
+            _require(0 <= radius <= min(x1 - x0, y1 - y0) / 2.0, f"{shape_id} radius_px is invalid")
+        _require(int(shape.get("supersample", 4)) >= 1, f"{shape_id} supersample must be >= 1")
+        shapes[shape_id] = shape
+    return shapes
 
 
 def _validate_component(
@@ -125,6 +168,7 @@ def _validate_component(
     source_ids: set[str],
     component_ids: set[str],
     derived: bool = False,
+    canonical_shapes: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     _require(isinstance(component, dict), "component entries must be objects")
     component_id = str(component.get("component_id", ""))
@@ -140,6 +184,21 @@ def _validate_component(
         _require(isinstance(component.get("source_component_ids"), list), f"{component_id} missing source_component_ids")
     else:
         processing_mode = str(component.get("processing_mode", "resize_premultiplied"))
+        shape_id = str(component.get("canonical_shape_id", ""))
+        if shape_id:
+            _require(shape_id in (canonical_shapes or {}), f"{component_id} references unknown canonical_shape_id: {shape_id}")
+            if "target_size" in component:
+                canvas = [int(value) for value in (canonical_shapes or {})[shape_id]["canvas_size"]]
+                _require([int(value) for value in component["target_size"]] == canvas, f"{component_id} target_size must match canonical shape canvas_size")
+        if processing_mode in {"canonical_shape_color", "canonical_shape_shadow_mask"}:
+            _require(bool(shape_id), f"{component_id} requires canonical_shape_id")
+        quality_gates = component.get("quality_gates", {})
+        _require(isinstance(quality_gates, dict), f"{component_id} quality_gates must be an object")
+        ue_texture = component.get("ue_texture", {})
+        _require(isinstance(ue_texture, dict), f"{component_id} ue_texture must be an object")
+        if processing_mode == "canonical_shape_shadow_mask":
+            _require(str(component.get("texture_type", "")) == "mask", f"{component_id} canonical shadow must use texture_type=mask")
+            return
         if processing_mode == "vector_sdf_icon":
             vector_icon = component.get("vector_icon")
             _require(isinstance(vector_icon, dict), f"{component_id} missing vector_icon object")
@@ -175,6 +234,49 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     )
     for field, label in required_true_fields:
         _require(contract.get(field) is True, f"alpha contract failed: {label}")
+    optional_true_fields = (
+        ("all_no_timer_dark_right_edge_band", "timer dark right-edge band"),
+        ("all_timer_edge_boundary_within_tolerance", "timer edge boundary alignment"),
+        ("all_timer_edge_has_boundary_face", "timer edge boundary face coverage"),
+        ("all_nameplate_timer_aaa_aspect_ratio_within_tolerance", "nameplate timer AAA aspect ratio"),
+        ("all_nameplate_timer_aaa_final_runtime_safe", "nameplate timer AAA runtime-safe strategy"),
+        ("all_nameplate_timer_aaa_edge_flipbook_contract", "nameplate timer AAA edge flipbook atlas contract"),
+    )
+    for field, label in optional_true_fields:
+        if field in contract:
+            _require(contract.get(field) is True, f"alpha contract failed: {label}")
+    if "all_shared_alpha_contracts_pass" in contract:
+        _require(contract.get("all_shared_alpha_contracts_pass") is True, "alpha contract failed: shared alpha byte equality")
+
+    canonical = manifest.get("canonical_shape_contract")
+    if isinstance(canonical, dict) and int(canonical.get("component_count", 0)) > 0:
+        _require(canonical.get("all_shapes_resolved") is True, "canonical shape contract failed: unresolved shape")
+        _require(canonical.get("all_canonical_alpha_exact") is True, "canonical shape contract failed: alpha mismatch")
+        _require(
+            canonical.get("all_linear_light_premultiplied_aspect_preserving") is True,
+            "canonical shape contract failed: resize policy",
+        )
+
+    shared = manifest.get("shared_alpha_contracts", [])
+    if shared:
+        _require(all(bool(item.get("pass")) for item in shared), "shared alpha contract failed")
+
+    quality = manifest.get("quality_contract")
+    if isinstance(quality, dict) and int(quality.get("component_count", 0)) > 0:
+        failed_quality = {
+            component_id: details
+            for component_id, details in quality.get("components", {}).items()
+            if not bool(details.get("all_pass"))
+        }
+        _require(
+            quality.get("all_quality_gates_pass") is True,
+            f"component quality gate failed: {json.dumps(failed_quality, sort_keys=True)}",
+        )
+
+    ue_texture = manifest.get("ue_texture_contract")
+    if isinstance(ue_texture, dict):
+        _require(ue_texture.get("component_count") == len(manifest["outputs"]), "UE texture contract component_count mismatch")
+        _require(ue_texture.get("all_ue_texture_settings_valid") is True, "UE texture settings contract failed")
     return warnings
 
 
