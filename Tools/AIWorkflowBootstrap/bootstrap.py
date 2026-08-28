@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.6"
+TOOL_VERSION = "0.1.7"
 STATE_DIR = Path("Tools") / "AIWorkflowBootstrap" / "state"
 CONFIG_NAME = (STATE_DIR / "project.json").as_posix()
 LOCK_NAME = (STATE_DIR / "lock.json").as_posix()
@@ -30,6 +30,15 @@ LEGACY_CONFIG_NAME = "commonai.project.json"
 LEGACY_LOCK_NAME = "commonai.lock.json"
 LEGACY_BACKUP_DIR = Path(".commonai") / "backups"
 DEFAULT_PLUGINS = ("MCPToolkit", "AIAssetPipeline")
+
+
+def powershell_prefix() -> list[str]:
+    """Return a cross-platform PowerShell command without relying on Windows PowerShell."""
+    executable = shutil.which("pwsh") or shutil.which("powershell")
+    if not executable:
+        raise BootstrapError("PowerShell Core (pwsh) or Windows PowerShell was not found")
+    return [executable, "-NoProfile", "-ExecutionPolicy", "Bypass"]
+
 
 EXCLUDED_DIR_NAMES = {
     ".diversion",
@@ -1050,16 +1059,10 @@ def doctor(args: argparse.Namespace) -> int:
         validator_path = project_root / str(effective_config["validatorPath"])
         if validator_path.is_file():
             completed = subprocess.run(
-                [
-                    "powershell",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(validator_path),
-                    "-Root",
-                    str(project_root),
-                    "-SpecDirectory",
-                    str(effective_config["uiSpecDir"]),
+                powershell_prefix() + [
+                    "-File", str(validator_path),
+                    "-Root", str(project_root),
+                    "-SpecDirectory", str(effective_config["uiSpecDir"]),
                 ],
                 check=False,
                 capture_output=True,
@@ -1085,16 +1088,10 @@ def validate_tspecs(args: argparse.Namespace) -> int:
         if not validator_path.is_file():
             raise BootstrapError(f"TSpec validator not found: {validator_path}")
 
-        command = [
-            "powershell",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(validator_path),
-            "-Root",
-            str(project_root),
-            "-SpecDirectory",
-            spec_directory,
+        command = powershell_prefix() + [
+            "-File", str(validator_path),
+            "-Root", str(project_root),
+            "-SpecDirectory", spec_directory,
         ]
         completed = subprocess.run(
             command,

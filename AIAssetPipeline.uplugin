@@ -1,12 +1,13 @@
 {
 	"FileVersion": 3,
-	"Version": 8,
-	"VersionName": "0.1.8",
+	"Version": 9,
+	"VersionName": "0.1.9",
 	"FriendlyName": "AI Asset Pipeline",
 	"Description": "Provider-agnostic AI source art packaging, manifest validation, and guarded Unreal Editor texture import workflow.",
 	"Category": "Editor",
 	"SupportedTargetPlatforms": [
 		"Win64",
+		"Mac",
 		"Linux"
 	],
 	"CreatedBy": "Alemdar Labs",

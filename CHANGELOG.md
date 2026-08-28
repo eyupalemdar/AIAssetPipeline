@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.9 - Portable Bootstrap and Self-Contained Tests
+
+- Added Mac to the Editor-only plugin platform allowlist.
+- Made bootstrap PowerShell invocation prefer cross-platform `pwsh` and fall
+  back to Windows PowerShell with an explicit error when neither exists.
+- Made legacy host-project V10 fixtures optional so the portable test suite can
+  run from a standalone plugin checkout.
+- Added pinned Python test requirements and CI coverage for both the asset
+  pipeline and bootstrap test suites.
+- Clarified that consuming-project policy and adopted files remain authoritative
+  during workflow updates.
+
 ## 0.1.8 - Canonical Shapes and Fail-Closed Texture Quality
 
 - Added reusable rounded-rectangle and circle `canonical_shapes`, component

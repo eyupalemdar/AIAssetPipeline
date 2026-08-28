@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import bootstrap
 
@@ -65,6 +66,33 @@ class BootstrapTests(unittest.TestCase):
         with contextlib.redirect_stdout(stream):
             code = bootstrap.main(args)
         return code, stream.getvalue()
+
+    def test_powershell_prefix_prefers_pwsh(self) -> None:
+        with mock.patch.object(
+            bootstrap.shutil,
+            "which",
+            side_effect=lambda name: "/tools/pwsh" if name == "pwsh" else None,
+        ):
+            self.assertEqual(
+                bootstrap.powershell_prefix(),
+                ["/tools/pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass"],
+            )
+
+    def test_powershell_prefix_falls_back_to_windows_powershell(self) -> None:
+        with mock.patch.object(
+            bootstrap.shutil,
+            "which",
+            side_effect=lambda name: "C:/Windows/powershell.exe" if name == "powershell" else None,
+        ):
+            self.assertEqual(
+                bootstrap.powershell_prefix(),
+                ["C:/Windows/powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass"],
+            )
+
+    def test_powershell_prefix_fails_when_no_runtime_exists(self) -> None:
+        with mock.patch.object(bootstrap.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(bootstrap.BootstrapError, "PowerShell"):
+                bootstrap.powershell_prefix()
 
     def test_install_dry_run_does_not_write_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

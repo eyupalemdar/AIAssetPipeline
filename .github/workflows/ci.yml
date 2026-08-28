@@ -17,12 +17,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install Python dependencies
-        run: python -m pip install pillow numpy
+        run: python -m pip install -r Resources/Python/requirements-test.txt
       - name: Compile Python
         run: |
-          python -m py_compile Resources/Python/ai_asset_pipeline/cli.py Resources/Python/ai_asset_pipeline/pipeline.py Resources/Python/ai_asset_pipeline/smoke.py Resources/Python/test_ai_asset_pipeline.py
-      - name: Run Python tests
+          python -m py_compile Resources/Python/ai_asset_pipeline/cli.py Resources/Python/ai_asset_pipeline/pipeline.py Resources/Python/ai_asset_pipeline/smoke.py Resources/Python/test_ai_asset_pipeline.py Tools/AIWorkflowBootstrap/bootstrap.py Tools/AIWorkflowBootstrap/test_bootstrap.py
+      - name: Run asset-pipeline tests
         run: python Resources/Python/test_ai_asset_pipeline.py
+      - name: Run bootstrap tests
+        run: python Tools/AIWorkflowBootstrap/test_bootstrap.py
       - name: Validate JSON schemas
         run: |
           python -m json.tool Resources/Schemas/asset_pipeline_spec.v1.json > NUL

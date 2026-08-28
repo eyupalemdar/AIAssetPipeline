@@ -148,6 +148,7 @@ class AIAssetPipelineTests(unittest.TestCase):
             self.assertEqual(shadow_plan["params"]["source_format"], "TSF_G8")
             self.assertFalse(shadow_plan["params"]["srgb"])
 
+    @unittest.skipUnless(V10_SPEC.is_file(), "optional legacy V10 spec fixture is not installed")
     def test_legacy_v10_spec_validates_with_warning(self) -> None:
         result = package_spec(V10_SPEC, validate_only=True, project_root=PROJECT_ROOT)
         self.assertTrue(result["ok"])
@@ -1489,12 +1490,14 @@ class AIAssetPipelineTests(unittest.TestCase):
             self.assertEqual(runtime.size, (100, 100))
             self.assertGreater(output["diagnostics"]["opaque_or_translucent_pixels"], 500)
 
+    @unittest.skipUnless(V10_MANIFEST.is_file(), "optional legacy V10 manifest fixture is not installed")
     def test_plan_import_reads_v10_manifest(self) -> None:
         result = plan_import(V10_MANIFEST, project_root=PROJECT_ROOT)
         self.assertTrue(result["ok"])
         self.assertEqual(result["component_count"], 15)
         self.assertEqual(result["imports"][0]["params"]["compression"], "UserInterface2D")
 
+    @unittest.skipUnless(V10_TSPEC.is_file(), "optional legacy TSpec fixture is not installed")
     def test_tspec_asset_pipeline_links_validate(self) -> None:
         result = validate_tspec_links(V10_TSPEC, project_root=PROJECT_ROOT)
         self.assertTrue(result["ok"], result["failures"])

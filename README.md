@@ -8,6 +8,24 @@ AIAssetPipeline does not call image models and does not mutate Widget
 Blueprints. Image providers such as Image 2.0 or other generators are recorded
 only as `source_art[].provenance` metadata.
 
+## Host-project integration
+
+This plugin is Editor-only and must be excluded from cooked and Shipping
+targets. A consuming repository's schemas, approval rules, validators and agent
+policy remain authoritative over the compatibility examples bundled here. Use
+bootstrap update dry-runs and `--adopt-existing` for manually maintained host
+files; never overwrite host-owned workflow contracts without review.
+
+Run its image-processing tests in an isolated environment:
+
+```text
+python3 -m venv <TEMP_VENV>
+# Activate <TEMP_VENV> for the current shell, then:
+python -m pip install -r Resources/Python/requirements-test.txt
+python Resources/Python/test_ai_asset_pipeline.py
+python Tools/AIWorkflowBootstrap/test_bootstrap.py
+```
+
 ## What It Provides
 
 - JSON spec and manifest contracts for source art ingestion.
