@@ -36,6 +36,8 @@ python Tools/AIWorkflowBootstrap/test_bootstrap.py
   and true single-channel canonical shadow masks.
 - Per-component fail-closed quality gates and guarded UE texture settings for
   UI color and grayscale mask imports.
+- Opt-in strict-HSV key-shadow removal, alpha-padding budgets, visible
+  chroma-shadow gates, and linear-light premultiplied approved-source resizing.
 - Unreal Editor extension commands registered through MCPToolkit:
   `asset_pipeline_status`, `asset_pipeline_import_manifest`, and
   `asset_pipeline_verify_assets`.

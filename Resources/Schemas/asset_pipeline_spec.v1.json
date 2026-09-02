@@ -9,6 +9,7 @@
     "run_id": { "type": "string", "minLength": 1 },
     "created": { "type": "string" },
     "validation_policy": { "const": "fail_closed" },
+    "approved_source_target_size": { "$ref": "#/$defs/approvedSourceTargetSize" },
     "runtime_output_dir": { "type": "string", "minLength": 1 },
     "review_output_dir": { "type": "string", "minLength": 1 },
     "manifest_name": { "type": "string" },
@@ -90,7 +91,7 @@
       "properties": {
         "component_id": { "type": "string", "minLength": 1 },
         "source_art_id": { "type": "string" },
-        "selector": { "type": "object", "additionalProperties": true },
+        "selector": { "$ref": "#/$defs/selector" },
         "draw_rect": {
           "type": "array",
           "prefixItems": [
@@ -133,6 +134,7 @@
           ],
           "default": "resize_premultiplied"
         },
+        "approved_source_target_size": { "$ref": "#/$defs/approvedSourceTargetSize" },
         "soft_glow_resize": {
           "type": "object",
           "properties": {
@@ -460,6 +462,28 @@
       },
       "additionalProperties": true
     },
+    "selector": {
+      "type": "object",
+      "properties": {
+        "chroma_key_mode": {
+          "enum": ["standard", "strict_hsv"],
+          "default": "standard"
+        }
+      },
+      "additionalProperties": true
+    },
+    "approvedSourceTargetSize": {
+      "type": "object",
+      "properties": {
+        "alpha_open_iterations": { "type": "integer", "minimum": 0 },
+        "alpha_close_iterations": { "type": "integer", "minimum": 0 },
+        "pre_speckle_min_area": { "type": "integer", "minimum": 0 },
+        "post_speckle_min_area": { "type": "integer", "minimum": 0 },
+        "linear_light": { "type": "boolean", "default": false },
+        "strict_hsv_post_cleanup": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": true
+    },
     "qualityGates": {
       "type": "object",
       "properties": {
@@ -475,6 +499,11 @@
         },
         "alpha_bbox_threshold": { "type": "integer", "minimum": 0, "maximum": 254 },
         "alpha_bbox_tolerance_px": { "type": "integer", "minimum": 0 },
+        "alpha_padding_threshold": { "type": "integer", "minimum": 0, "maximum": 254 },
+        "max_alpha_padding_px": { "type": "integer", "minimum": 0 },
+        "max_alpha_padding_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "chroma_shadow_alpha_threshold": { "type": "integer", "minimum": 0, "maximum": 254 },
+        "max_visible_chroma_shadow_pixels": { "type": "integer", "minimum": 0 },
         "max_radial_deviation_px": { "type": "number", "minimum": 0 },
         "max_outer_ring_delta_e_p99": { "type": "number", "minimum": 0 },
         "outer_ring_width_px": { "type": "number", "exclusiveMinimum": 0 },

@@ -33,6 +33,7 @@ from .image_ops import (
     resize_premultiplied,
     resize_reference_color_pill,
     resize_soft_glow,
+    strict_hsv_chroma_shadow_mask,
     timer_boundary_diagnostics,
 )
 from .review import (
@@ -457,7 +458,7 @@ def _procedural_vector_icon_source_info(component: dict[str, Any]) -> dict[str, 
     }
 
 
-def _cleanup_config(spec: dict[str, Any], component: dict[str, Any]) -> dict[str, int]:
+def _cleanup_config(spec: dict[str, Any], component: dict[str, Any]) -> dict[str, int | bool]:
     global_config = spec.get("approved_source_target_size", {})
     component_config = component.get("approved_source_target_size", {})
     if not isinstance(global_config, dict):
@@ -469,6 +470,8 @@ def _cleanup_config(spec: dict[str, Any], component: dict[str, Any]) -> dict[str
         "alpha_close_iterations": 0,
         "pre_speckle_min_area": 0,
         "post_speckle_min_area": 12,
+        "linear_light": False,
+        "strict_hsv_post_cleanup": False,
         **global_config,
         **component_config,
     }
@@ -477,6 +480,8 @@ def _cleanup_config(spec: dict[str, Any], component: dict[str, Any]) -> dict[str
         "alpha_close_iterations": int(merged.get("alpha_close_iterations", 0)),
         "pre_speckle_min_area": int(merged.get("pre_speckle_min_area", 0)),
         "post_speckle_min_area": int(merged.get("post_speckle_min_area", 12)),
+        "linear_light": bool(merged.get("linear_light", False)),
+        "strict_hsv_post_cleanup": bool(merged.get("strict_hsv_post_cleanup", False)),
     }
 
 
@@ -1424,6 +1429,57 @@ def _evaluate_quality_gates(
         passed = actual is not None and all(abs(actual[index] - expected[index]) <= tolerance for index in range(4))
         results["alpha_bbox"] = {"pass": passed, "actual": actual, "expected": expected, "tolerance_px": tolerance}
 
+    if "max_alpha_padding_px" in config or "max_alpha_padding_percent" in config:
+        padding_threshold = int(config.get("alpha_padding_threshold", 8))
+        ys, xs = np.where(alpha > padding_threshold)
+        if xs.size:
+            left = int(xs.min())
+            top = int(ys.min())
+            right = int(alpha.shape[1] - (xs.max() + 1))
+            bottom = int(alpha.shape[0] - (ys.max() + 1))
+            padding = [left, top, right, bottom]
+            padding_percent = [
+                (left / float(alpha.shape[1])) * 100.0,
+                (top / float(alpha.shape[0])) * 100.0,
+                (right / float(alpha.shape[1])) * 100.0,
+                (bottom / float(alpha.shape[0])) * 100.0,
+            ]
+            max_padding = max(padding)
+            max_padding_percent = max(padding_percent)
+            passed = True
+            if "max_alpha_padding_px" in config:
+                passed = passed and max_padding <= int(config["max_alpha_padding_px"])
+            if "max_alpha_padding_percent" in config:
+                passed = passed and max_padding_percent <= float(config["max_alpha_padding_percent"])
+            results["alpha_padding"] = {
+                "pass": bool(passed),
+                "threshold": padding_threshold,
+                "padding_ltrb_px": padding,
+                "padding_ltrb_percent": [round(value, 4) for value in padding_percent],
+                "max_padding_px": max_padding,
+                "max_padding_percent": round(max_padding_percent, 4),
+                "limit_px": int(config["max_alpha_padding_px"]) if "max_alpha_padding_px" in config else None,
+                "limit_percent": float(config["max_alpha_padding_percent"]) if "max_alpha_padding_percent" in config else None,
+            }
+        else:
+            results["alpha_padding"] = {
+                "pass": False,
+                "threshold": padding_threshold,
+                "reason": "no alpha pixels above threshold",
+            }
+
+    if "max_visible_chroma_shadow_pixels" in config:
+        shadow_threshold = int(config.get("chroma_shadow_alpha_threshold", 8))
+        shadow = strict_hsv_chroma_shadow_mask(rgba[:, :, :3]) & (alpha > shadow_threshold)
+        count = int(shadow.sum())
+        limit = int(config["max_visible_chroma_shadow_pixels"])
+        results["visible_chroma_shadow"] = {
+            "pass": count <= limit,
+            "pixel_count": count,
+            "limit": limit,
+            "alpha_threshold": shadow_threshold,
+        }
+
     if bool(config.get("require_canonical_alpha_exact", False)):
         if shape is None:
             results["canonical_alpha_exact"] = {"pass": False, "reason": "canonical shape is missing"}
@@ -1742,6 +1798,11 @@ def _output_item(
         "derived-from-canonical-shape",
         "procedural-vector-icon",
     }
+    approved_cleanup = (
+        _cleanup_config(spec, component)
+        if component.get("processing_mode") == "approved_source_target_size"
+        else {}
+    )
     return {
         "component_id": component["component_id"],
         "asset_suffix": component["asset_suffix"],
@@ -1771,10 +1832,21 @@ def _output_item(
         "texture_type": component.get("texture_type", "color"),
         "processing_mode": component.get("processing_mode", "resize_premultiplied"),
         "resize_contract": {
-            "linear_light": component.get("processing_mode") == "canonical_shape_color",
-            "premultiplied": component.get("processing_mode") == "canonical_shape_color",
+            "linear_light": (
+                component.get("processing_mode") == "canonical_shape_color"
+                or approved_cleanup.get("linear_light") is True
+            ),
+            "premultiplied": (
+                component.get("processing_mode") == "canonical_shape_color"
+                or component.get("processing_mode") == "approved_source_target_size"
+            ),
             "preserve_aspect_ratio": component.get("processing_mode") == "canonical_shape_color",
             "non_uniform_stretch": False if component.get("processing_mode") == "canonical_shape_color" else None,
+            "strict_hsv_post_cleanup": (
+                approved_cleanup.get("strict_hsv_post_cleanup") is True
+                if component.get("processing_mode") == "approved_source_target_size"
+                else None
+            ),
         },
         "canonical_shape_id": canonical_shape_id,
         "canonical_shape": canonical_shape or {},

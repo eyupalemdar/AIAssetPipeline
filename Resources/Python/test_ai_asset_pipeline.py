@@ -15,8 +15,15 @@ PROJECT_ROOT = PYTHON_DIR.parents[3]
 if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
-from ai_asset_pipeline.pipeline import package_spec
-from ai_asset_pipeline.image_ops import chroma_to_alpha, clean_button_icon_overlay, connected_component_stats, diagnostics
+from ai_asset_pipeline.pipeline import _evaluate_quality_gates, package_spec
+from ai_asset_pipeline.image_ops import (
+    chroma_to_alpha,
+    chroma_to_alpha_strict_hsv,
+    clean_button_icon_overlay,
+    clean_existing_source_target_size,
+    connected_component_stats,
+    diagnostics,
+)
 from ai_asset_pipeline.review import compose_review, save_matte_issue_overlay
 from ai_asset_pipeline.smoke import create_smoke_fixture
 from ai_asset_pipeline.spec import SpecError, validate_spec
@@ -30,6 +37,150 @@ V10_TSPEC = PROJECT_ROOT / "Docs/Tasarim/UI_TSpecs/Probe_SeatPlate_DarkIntegrate
 
 
 class AIAssetPipelineTests(unittest.TestCase):
+    def test_strict_hsv_chroma_removes_dark_key_shadow_and_keeps_brown_art(self) -> None:
+        image = Image.new("RGBA", (12, 10), (255, 0, 216, 255))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((4, 2, 8, 7), fill=(116, 72, 38, 255))
+        draw.line((0, 8, 11, 8), fill=(80, 10, 55, 255), width=1)
+        image.putpixel((10, 4), (58, 4, 0, 255))
+
+        standard = np.asarray(chroma_to_alpha(image), dtype=np.uint8)
+        strict = np.asarray(chroma_to_alpha_strict_hsv(image), dtype=np.uint8)
+        self.assertEqual(int(standard[8, 5, 3]), 255)
+        self.assertEqual(int(strict[8, 5, 3]), 0)
+        self.assertEqual(int(strict[4, 6, 3]), 255)
+        self.assertEqual(int(strict[4, 10, 3]), 255)
+
+        target = clean_existing_source_target_size(
+            Image.fromarray(strict, "RGBA"),
+            (6, 5),
+            clear_outer_pixels=1,
+            linear_light=True,
+            strict_hsv_post_cleanup=True,
+            post_speckle_min_area=0,
+        )
+        target_arr = np.asarray(target, dtype=np.uint8)
+        self.assertEqual(target.size, (6, 5))
+        self.assertEqual(int(target_arr[0, :, 3].max()), 0)
+        self.assertGreater(int(target_arr[2, 3, 3]), 0)
+
+    def test_strict_cutout_spec_contract_validates_and_is_receipted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test.uproject").write_text("{}", encoding="utf-8")
+            source_path = root / "source.png"
+            source = Image.new("RGBA", (32, 32), (255, 0, 216, 255))
+            draw = ImageDraw.Draw(source)
+            draw.rectangle((8, 7, 23, 23), fill=(116, 72, 38, 255))
+            draw.line((6, 25, 25, 25), fill=(80, 10, 55, 255), width=1)
+            source.save(source_path)
+            (root / "prompt.md").write_text("synthetic strict cutout fixture", encoding="utf-8")
+
+            spec = {
+                "$schema": "ai-asset-pipeline-spec-v1",
+                "run_id": "strict-cutout-contract",
+                "validation_policy": "fail_closed",
+                "runtime_output_dir": "runtime",
+                "review_output_dir": "review",
+                "approved_source_target_size": {
+                    "linear_light": True,
+                    "strict_hsv_post_cleanup": False,
+                    "post_speckle_min_area": 0,
+                },
+                "source_art": [
+                    {
+                        "id": "source",
+                        "path": "source.png",
+                        "prompt_files": ["prompt.md"],
+                        "provenance": {
+                            "provider": "fixture",
+                            "model": "unit-test",
+                            "generation_id": "strict-cutout-1",
+                        },
+                    }
+                ],
+                "components": [
+                    {
+                        "component_id": "body",
+                        "source_art_id": "source",
+                        "selector": {
+                            "type": "alpha_bbox",
+                            "chroma_key_mode": "strict_hsv",
+                            "pad": 1,
+                            "min_area": 4,
+                        },
+                        "draw_rect": [0, 0, 16, 16],
+                        "target_size": [16, 16],
+                        "asset_suffix": "Body",
+                        "runtime_asset_name": "T_Body",
+                        "ue_asset_name": "T_Body",
+                        "processing_mode": "approved_source_target_size",
+                        "clear_outer_alpha_px": 1,
+                        "quality_gates": {
+                            "max_alpha_padding_px": 1,
+                            "max_visible_chroma_shadow_pixels": 0,
+                        },
+                    }
+                ],
+            }
+            validate_spec(spec, root)
+            spec_path = root / "spec.json"
+            spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+            packaged = package_spec(spec_path, project_root=root)
+            manifest = json.loads((root / packaged["manifest"]).read_text(encoding="utf-8"))
+            output = manifest["outputs"][0]
+            self.assertEqual(output["selector"]["chroma_key_mode"], "strict_hsv")
+            self.assertTrue(output["resize_contract"]["linear_light"])
+            self.assertTrue(output["resize_contract"]["premultiplied"])
+            self.assertFalse(output["resize_contract"]["strict_hsv_post_cleanup"])
+            self.assertTrue(output["quality_gates"]["results"]["alpha_padding"]["pass"])
+            self.assertTrue(output["quality_gates"]["results"]["visible_chroma_shadow"]["pass"])
+
+            invalid_selector = json.loads(json.dumps(spec))
+            invalid_selector["components"][0]["selector"]["chroma_key_mode"] = "aggressive"
+            with self.assertRaises(SpecError):
+                validate_spec(invalid_selector, root)
+
+            invalid_resize = json.loads(json.dumps(spec))
+            invalid_resize["approved_source_target_size"]["linear_light"] = "true"
+            with self.assertRaises(SpecError):
+                validate_spec(invalid_resize, root)
+
+            invalid_gate = json.loads(json.dumps(spec))
+            invalid_gate["components"][0]["quality_gates"]["max_alpha_padding_px"] = -1
+            with self.assertRaises(SpecError):
+                validate_spec(invalid_gate, root)
+
+    def test_alpha_padding_quality_gate_reports_edges_and_fails_closed(self) -> None:
+        image = Image.new("RGBA", (10, 8), (0, 0, 0, 0))
+        ImageDraw.Draw(image).rectangle((2, 1, 7, 6), fill=(120, 90, 60, 255))
+
+        passed = _evaluate_quality_gates(
+            image,
+            {"quality_gates": {"max_alpha_padding_px": 2, "max_alpha_padding_percent": 20}},
+            None,
+        )
+        self.assertTrue(passed["all_pass"])
+        self.assertEqual(passed["results"]["alpha_padding"]["padding_ltrb_px"], [2, 1, 2, 1])
+
+        failed = _evaluate_quality_gates(
+            image,
+            {"quality_gates": {"max_alpha_padding_px": 1}},
+            None,
+        )
+        self.assertFalse(failed["all_pass"])
+        self.assertEqual(failed["results"]["alpha_padding"]["max_padding_px"], 2)
+
+        shadow = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+        shadow.putpixel((3, 3), (80, 10, 55, 255))
+        shadow_gate = _evaluate_quality_gates(
+            shadow,
+            {"quality_gates": {"max_visible_chroma_shadow_pixels": 0}},
+            None,
+        )
+        self.assertFalse(shadow_gate["all_pass"])
+        self.assertEqual(shadow_gate["results"]["visible_chroma_shadow"]["pixel_count"], 1)
+
     def test_chroma_to_alpha_removes_border_connected_green_key(self) -> None:
         image = Image.new("RGBA", (32, 32), (42, 196, 78, 255))
         ImageDraw.Draw(image).rounded_rectangle((5, 4, 26, 28), radius=4, fill=(239, 220, 178, 255))

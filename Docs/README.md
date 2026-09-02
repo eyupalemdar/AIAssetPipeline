@@ -55,6 +55,29 @@ blocking by default; `blocking: false` is reserved for review-only comparison
 artifacts whose measured failure must remain in the manifest but must never be
 selected for production.
 
+Runtime and source-quality specs can also fail closed on accidental transparent
+canvas waste with `max_alpha_padding_px` and/or
+`max_alpha_padding_percent`. The manifest records left/top/right/bottom padding
+from the alpha bounding box at `alpha_padding_threshold` (default `8`). Declare
+a component-specific larger budget only for intentional shared-canvas
+composition, such as gender avatar layers aligned to one disk; do not waive a
+whole package globally.
+
+For Image 2 sources whose nominally flat magenta key contains darker
+hue-preserving cast-shadow or antialias bands, selectors may opt into
+`"chroma_key_mode": "strict_hsv"`. This removes the key and those shadow
+bands before component selection. Pair it with the blocking quality gate
+`max_visible_chroma_shadow_pixels: 0`; the normal mode remains unchanged for
+art that may legitimately contain magenta or red.
+
+For severe downscales where a thin approved bevel or silhouette apex collapses
+under the legacy sRGB resampler, `approved_source_target_size` may opt into
+`linear_light: true`. Keep `strict_hsv_post_cleanup` disabled unless the
+post-resize `max_visible_chroma_shadow_pixels` gate measures a residual: alpha
+punching after a severe reduction can notch legitimate dark red/brown bevel
+pixels. If enabled, inspect the target-size cutout as well as the gate result.
+Both switches are opt-in and are recorded in each output's `resize_contract`.
+
 Each component can declare `ue_texture`. UI color textures use
 `UserInterface2D`, sRGB, UI LOD, NoMipmaps, Clamp, Bilinear, and NeverStream.
 Single-channel masks use `Grayscale`, `TSF_G8`, and `srgb: false` with the same
@@ -111,7 +134,9 @@ overridden per component with the same object:
     "pre_speckle_min_area": 8,
     "post_speckle_min_area": 12,
     "alpha_open_iterations": 0,
-    "alpha_close_iterations": 0
+    "alpha_close_iterations": 0,
+    "linear_light": true,
+    "strict_hsv_post_cleanup": false
   }
 }
 ```

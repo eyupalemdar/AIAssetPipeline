@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.10 - Strict Cutouts and Padding Quality Gates
+
+- Added opt-in strict-HSV chroma cleanup for dark hue-preserving key shadows
+  while protecting legitimate dark red/brown bevel pixels.
+- Added fail-closed alpha-padding and visible chroma-shadow quality gates with
+  measured L/T/R/B diagnostics in manifests.
+- Added opt-in linear-light premultiplied target-size reduction and explicit
+  manifest receipt of post-resize strict cleanup policy.
+- Added runtime spec validation and JSON Schema contracts for the new selector,
+  resize and quality-gate controls, plus standalone regression coverage.
+
 ## 0.1.9 - Portable Bootstrap and Self-Contained Tests
 
 - Added Mac to the Editor-only plugin platform allowlist.

@@ -49,6 +49,49 @@ def chroma_fringe_candidate_mask(rgb: np.ndarray) -> np.ndarray:
     )
 
 
+def strict_hsv_chroma_shadow_mask(rgb: np.ndarray) -> np.ndarray:
+    """Detect bright key pixels plus darker hue-preserving chroma shadows.
+
+    Image generators can render a flat magenta key with dark cast-shadow and
+    antialias bands. RGB-distance-only keying leaves those bands as opaque
+    spikes after alpha extraction. This opt-in mask mirrors the previously
+    proven ProjectOkey strict HSV cutout rule and is intentionally not applied
+    to assets that may contain legitimate magenta/red artwork.
+    """
+
+    rgb8 = np.asarray(rgb, dtype=np.uint8)
+    hsv = np.asarray(Image.fromarray(rgb8, "RGB").convert("HSV"), dtype=np.uint8)
+    hue = hsv[:, :, 0]
+    saturation = hsv[:, :, 1]
+    value = hsv[:, :, 2]
+    channels = rgb8.astype(np.int16)
+    red = channels[:, :, 0]
+    green = channels[:, :, 1]
+    blue = channels[:, :, 2]
+    # Hue wraps at red. Accept the low-hue side only when blue still dominates
+    # green, otherwise legitimate dark red/brown bevel pixels are false
+    # positives and become pinholes after target-size reduction.
+    magenta_hue = (hue >= 188) | ((hue <= 8) & (blue > (green + 8)) & (blue > 20))
+    magenta_rgb = (
+        (red > 120)
+        & (blue > 120)
+        & (green < 220)
+        & ((red + blue) > ((2 * green) + 60))
+    )
+    return (magenta_hue & (saturation > 35) & (value > 40)) | magenta_rgb
+
+
+def chroma_to_alpha_strict_hsv(image: Image.Image) -> Image.Image:
+    """Remove a magenta key and its darker hue-preserving shadow matte."""
+
+    source = np.asarray(image.convert("RGBA"), dtype=np.uint8)
+    out = np.asarray(chroma_to_alpha(image), dtype=np.uint8).copy()
+    strict = strict_hsv_chroma_shadow_mask(source[:, :, :3])
+    out[strict, 3] = 0
+    out[strict, :3] = 0
+    return Image.fromarray(neutralize_hidden_artifacts(out), "RGBA")
+
+
 def visible_magenta_fringe_mask(arr: np.ndarray) -> np.ndarray:
     rgb = arr[:, :, :3].astype(np.int16)
     alpha = arr[:, :, 3]
@@ -493,6 +536,8 @@ def clean_existing_source_target_size(
     alpha_close_iterations: int = 0,
     pre_speckle_min_area: int = 0,
     post_speckle_min_area: int = 12,
+    linear_light: bool = False,
+    strict_hsv_post_cleanup: bool = False,
 ) -> Image.Image:
     arr = np.asarray(chroma_to_alpha(image), dtype=np.uint8)
     if pre_speckle_min_area > 1:
@@ -508,7 +553,14 @@ def clean_existing_source_target_size(
         arr[~mask, :3] = 0
     arr = despill_visible_magenta(arr)
     arr = neutralize_hidden_artifacts(arr)
-    resized = resize_premultiplied(Image.fromarray(arr, "RGBA"), size, 0)
+    prepared = Image.fromarray(arr, "RGBA")
+    resized = (
+        resize_linear_light_premultiplied(prepared, size, 0)
+        if linear_light
+        else resize_premultiplied(prepared, size, 0)
+    )
+    if strict_hsv_post_cleanup:
+        resized = chroma_to_alpha_strict_hsv(resized)
     out = np.asarray(resized.convert("RGBA"), dtype=np.uint8)
     out, _ = remove_alpha_speckles(out, post_speckle_min_area)
     out = despill_visible_magenta(out)

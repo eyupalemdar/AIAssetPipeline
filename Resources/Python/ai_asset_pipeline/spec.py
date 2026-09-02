@@ -74,6 +74,48 @@ def _is_legacy_schema(schema: str) -> bool:
     return schema in LEGACY_SPEC_SCHEMAS
 
 
+def _validate_approved_source_target_size(value: Any, owner: str) -> None:
+    _require(isinstance(value, dict), f"{owner} must be an object")
+    for field in (
+        "alpha_open_iterations",
+        "alpha_close_iterations",
+        "pre_speckle_min_area",
+        "post_speckle_min_area",
+    ):
+        if field in value:
+            _require(
+                type(value[field]) is int and value[field] >= 0,
+                f"{owner}.{field} must be a non-negative integer",
+            )
+    for field in ("linear_light", "strict_hsv_post_cleanup"):
+        if field in value:
+            _require(type(value[field]) is bool, f"{owner}.{field} must be a boolean")
+
+
+def _validate_cutout_quality_gates(value: dict[str, Any], owner: str) -> None:
+    integer_ranges = {
+        "alpha_padding_threshold": (0, 254),
+        "max_alpha_padding_px": (0, None),
+        "chroma_shadow_alpha_threshold": (0, 254),
+        "max_visible_chroma_shadow_pixels": (0, None),
+    }
+    for field, (minimum, maximum) in integer_ranges.items():
+        if field not in value:
+            continue
+        actual = value[field]
+        valid = type(actual) is int and actual >= minimum
+        if maximum is not None:
+            valid = valid and actual <= maximum
+        range_label = f"{minimum}..{maximum}" if maximum is not None else f">={minimum}"
+        _require(valid, f"{owner}.{field} must be an integer in {range_label}")
+    if "max_alpha_padding_percent" in value:
+        actual = value["max_alpha_padding_percent"]
+        _require(
+            type(actual) in {int, float} and 0 <= actual <= 100,
+            f"{owner}.max_alpha_padding_percent must be a number in 0..100",
+        )
+
+
 def validate_spec(spec: dict[str, Any], root: Path) -> list[str]:
     schema = str(spec.get("$schema", ""))
     _require(
@@ -88,6 +130,10 @@ def validate_spec(spec: dict[str, Any], root: Path) -> list[str]:
     for field in ("run_id", "runtime_output_dir", "review_output_dir", "source_art", "components"):
         _require(field in spec, f"missing required field: {field}")
     _require(spec.get("validation_policy", "fail_closed") == "fail_closed", "v1 only supports fail_closed")
+    _validate_approved_source_target_size(
+        spec.get("approved_source_target_size", {}),
+        "approved_source_target_size",
+    )
 
     source_art = spec.get("source_art")
     _require(isinstance(source_art, list) and source_art, "source_art must be a non-empty array")
@@ -194,6 +240,11 @@ def _validate_component(
             _require(bool(shape_id), f"{component_id} requires canonical_shape_id")
         quality_gates = component.get("quality_gates", {})
         _require(isinstance(quality_gates, dict), f"{component_id} quality_gates must be an object")
+        _validate_cutout_quality_gates(quality_gates, f"{component_id}.quality_gates")
+        _validate_approved_source_target_size(
+            component.get("approved_source_target_size", {}),
+            f"{component_id}.approved_source_target_size",
+        )
         ue_texture = component.get("ue_texture", {})
         _require(isinstance(ue_texture, dict), f"{component_id} ue_texture must be an object")
         if processing_mode == "canonical_shape_shadow_mask":
@@ -206,7 +257,13 @@ def _validate_component(
             return
         source_art_id = str(component.get("source_art_id", ""))
         _require(source_art_id in source_ids, f"{component_id} references unknown source_art_id: {source_art_id}")
-        _require(isinstance(component.get("selector"), dict), f"{component_id} missing selector object")
+        selector = component.get("selector")
+        _require(isinstance(selector, dict), f"{component_id} missing selector object")
+        chroma_key_mode = selector.get("chroma_key_mode", "standard")
+        _require(
+            chroma_key_mode in {"standard", "strict_hsv"},
+            f"{component_id} selector.chroma_key_mode must be standard or strict_hsv",
+        )
 
 
 def validate_manifest(manifest: dict[str, Any]) -> list[str]:

@@ -4,7 +4,7 @@ from typing import Any
 
 from PIL import Image
 
-from .image_ops import alpha_bbox, chroma_to_alpha, component_boxes, crop_box
+from .image_ops import alpha_bbox, chroma_to_alpha, chroma_to_alpha_strict_hsv, component_boxes, crop_box
 
 
 Box = tuple[int, int, int, int]
@@ -31,15 +31,21 @@ def _box_key(sort: str):
 
 def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Image, dict[str, object]]:
     selector_type = selector.get("type", "alpha_largest")
+    chroma_key_mode = str(selector.get("chroma_key_mode", "standard"))
 
     if selector_type == "full_image_raw":
         rgba = source.convert("RGBA")
-        return rgba, {"selector": selector_type, "selected_box": [0, 0, rgba.width, rgba.height]}
+        return rgba, {"selector": selector_type, "chroma_key_mode": "raw", "selected_box": [0, 0, rgba.width, rgba.height]}
 
-    cleaned = chroma_to_alpha(source)
+    if chroma_key_mode == "standard":
+        cleaned = chroma_to_alpha(source)
+    elif chroma_key_mode == "strict_hsv":
+        cleaned = chroma_to_alpha_strict_hsv(source)
+    else:
+        raise ValueError(f"Unsupported chroma_key_mode: {chroma_key_mode}")
 
     if selector_type == "full_image":
-        return cleaned, {"selector": selector_type, "selected_box": [0, 0, cleaned.width, cleaned.height]}
+        return cleaned, {"selector": selector_type, "chroma_key_mode": chroma_key_mode, "selected_box": [0, 0, cleaned.width, cleaned.height]}
 
     if selector_type == "bbox":
         raw_box = selector.get("box")
@@ -47,7 +53,7 @@ def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Im
             raise ValueError("bbox selector requires box=[x,y,w,h]")
         x, y, w, h = [int(v) for v in raw_box]
         box = (x, y, x + w, y + h)
-        return cleaned.crop(box), {"selector": selector_type, "selected_box": list(box)}
+        return cleaned.crop(box), {"selector": selector_type, "chroma_key_mode": chroma_key_mode, "selected_box": list(box)}
 
     boxes = component_boxes(cleaned, int(selector.get("min_area", 1200)))
     if not boxes:
@@ -57,6 +63,7 @@ def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Im
         box = max(boxes, key=lambda item: (item[2] - item[0]) * (item[3] - item[1]))
         return crop_box(cleaned, box, int(selector.get("pad", 24))), {
             "selector": selector_type,
+            "chroma_key_mode": chroma_key_mode,
             "detected_count": len(boxes),
             "selected_box": list(box),
         }
@@ -65,6 +72,7 @@ def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Im
         box = alpha_bbox(cleaned)
         return crop_box(cleaned, box, int(selector.get("pad", 0))), {
             "selector": selector_type,
+            "chroma_key_mode": chroma_key_mode,
             "detected_count": len(boxes),
             "selected_box": list(box),
         }
@@ -88,6 +96,7 @@ def select_crop(source: Image.Image, selector: dict[str, Any]) -> tuple[Image.Im
             raise RuntimeError(f"Component index {index} is out of range for {len(ordered)} boxes") from exc
         return crop_box(cleaned, box, int(selector.get("pad", 24))), {
             "selector": selector_type,
+            "chroma_key_mode": chroma_key_mode,
             "detected_count": len(boxes),
             "selected_count": len(ordered),
             "selected_index": index,
