@@ -55,7 +55,8 @@
               "premultiplied": { "type": "boolean" },
               "preserve_aspect_ratio": { "type": "boolean" },
               "non_uniform_stretch": { "type": ["boolean", "null"] },
-              "strict_hsv_post_cleanup": { "type": ["boolean", "null"] }
+              "strict_hsv_post_cleanup": { "type": ["boolean", "null"] },
+              "fit_visible_alpha_to_safe_area": { "type": ["boolean", "null"] }
             },
             "additionalProperties": true
           },

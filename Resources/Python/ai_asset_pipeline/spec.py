@@ -87,7 +87,11 @@ def _validate_approved_source_target_size(value: Any, owner: str) -> None:
                 type(value[field]) is int and value[field] >= 0,
                 f"{owner}.{field} must be a non-negative integer",
             )
-    for field in ("linear_light", "strict_hsv_post_cleanup"):
+    for field in (
+        "linear_light",
+        "strict_hsv_post_cleanup",
+        "fit_visible_alpha_to_safe_area",
+    ):
         if field in value:
             _require(type(value[field]) is bool, f"{owner}.{field} must be a boolean")
 

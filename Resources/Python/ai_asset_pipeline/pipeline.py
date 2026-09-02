@@ -472,6 +472,7 @@ def _cleanup_config(spec: dict[str, Any], component: dict[str, Any]) -> dict[str
         "post_speckle_min_area": 12,
         "linear_light": False,
         "strict_hsv_post_cleanup": False,
+        "fit_visible_alpha_to_safe_area": False,
         **global_config,
         **component_config,
     }
@@ -482,6 +483,7 @@ def _cleanup_config(spec: dict[str, Any], component: dict[str, Any]) -> dict[str
         "post_speckle_min_area": int(merged.get("post_speckle_min_area", 12)),
         "linear_light": bool(merged.get("linear_light", False)),
         "strict_hsv_post_cleanup": bool(merged.get("strict_hsv_post_cleanup", False)),
+        "fit_visible_alpha_to_safe_area": bool(merged.get("fit_visible_alpha_to_safe_area", False)),
     }
 
 
@@ -1844,6 +1846,11 @@ def _output_item(
             "non_uniform_stretch": False if component.get("processing_mode") == "canonical_shape_color" else None,
             "strict_hsv_post_cleanup": (
                 approved_cleanup.get("strict_hsv_post_cleanup") is True
+                if component.get("processing_mode") == "approved_source_target_size"
+                else None
+            ),
+            "fit_visible_alpha_to_safe_area": (
+                approved_cleanup.get("fit_visible_alpha_to_safe_area") is True
                 if component.get("processing_mode") == "approved_source_target_size"
                 else None
             ),

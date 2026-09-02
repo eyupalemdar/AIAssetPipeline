@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 10,
-	"VersionName": "0.1.10",
+	"Version": 11,
+	"VersionName": "0.1.11",
 	"FriendlyName": "AI Asset Pipeline",
 	"Description": "Provider-agnostic AI source art packaging, manifest validation, and guarded Unreal Editor texture import workflow.",
 	"Category": "Editor",

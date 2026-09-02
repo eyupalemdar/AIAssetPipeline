@@ -480,7 +480,8 @@
         "pre_speckle_min_area": { "type": "integer", "minimum": 0 },
         "post_speckle_min_area": { "type": "integer", "minimum": 0 },
         "linear_light": { "type": "boolean", "default": false },
-        "strict_hsv_post_cleanup": { "type": "boolean", "default": false }
+        "strict_hsv_post_cleanup": { "type": "boolean", "default": false },
+        "fit_visible_alpha_to_safe_area": { "type": "boolean", "default": false }
       },
       "additionalProperties": true
     },

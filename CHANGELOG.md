@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.11 - Non-Destructive Alpha Safe-Area Fit
+
+- Added opt-in `fit_visible_alpha_to_safe_area` handling for alpha-tight
+  approved-source reductions that also require a transparent target border.
+- Prevented `clear_outer_alpha_px` from satisfying padding gates by deleting
+  authored cardinal-edge pixels on rings and closed frames.
+- Added manifest/schema receipt, runtime type validation, documentation and a
+  regression test covering the destructive-clear failure mode.
+
 ## 0.1.10 - Strict Cutouts and Padding Quality Gates
 
 - Added opt-in strict-HSV chroma cleanup for dark hue-preserving key shadows

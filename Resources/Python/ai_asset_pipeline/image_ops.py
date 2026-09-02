@@ -538,6 +538,7 @@ def clean_existing_source_target_size(
     post_speckle_min_area: int = 12,
     linear_light: bool = False,
     strict_hsv_post_cleanup: bool = False,
+    fit_visible_alpha_to_safe_area: bool = False,
 ) -> Image.Image:
     arr = np.asarray(chroma_to_alpha(image), dtype=np.uint8)
     if pre_speckle_min_area > 1:
@@ -554,11 +555,21 @@ def clean_existing_source_target_size(
     arr = despill_visible_magenta(arr)
     arr = neutralize_hidden_artifacts(arr)
     prepared = Image.fromarray(arr, "RGBA")
-    resized = (
-        resize_linear_light_premultiplied(prepared, size, 0)
-        if linear_light
-        else resize_premultiplied(prepared, size, 0)
-    )
+    resize = resize_linear_light_premultiplied if linear_light else resize_premultiplied
+    if fit_visible_alpha_to_safe_area:
+        inset = max(0, int(clear_outer_pixels))
+        interior_size = (int(size[0]) - (2 * inset), int(size[1]) - (2 * inset))
+        if interior_size[0] <= 0 or interior_size[1] <= 0:
+            raise ValueError(
+                f"Target size {size} is too small for a {inset}px alpha-safe border"
+            )
+        visible_box = alpha_bbox(prepared, threshold=8)
+        visible = prepared.crop(visible_box)
+        fitted = resize(visible, interior_size, 0)
+        resized = Image.new("RGBA", size, (0, 0, 0, 0))
+        resized.alpha_composite(fitted, (inset, inset))
+    else:
+        resized = resize(prepared, size, 0)
     if strict_hsv_post_cleanup:
         resized = chroma_to_alpha_strict_hsv(resized)
     out = np.asarray(resized.convert("RGBA"), dtype=np.uint8)

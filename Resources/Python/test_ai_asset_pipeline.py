@@ -17,6 +17,7 @@ if str(PYTHON_DIR) not in sys.path:
 
 from ai_asset_pipeline.pipeline import _evaluate_quality_gates, package_spec
 from ai_asset_pipeline.image_ops import (
+    alpha_bbox,
     chroma_to_alpha,
     chroma_to_alpha_strict_hsv,
     clean_button_icon_overlay,
@@ -85,6 +86,7 @@ class AIAssetPipelineTests(unittest.TestCase):
                 "approved_source_target_size": {
                     "linear_light": True,
                     "strict_hsv_post_cleanup": False,
+                    "fit_visible_alpha_to_safe_area": True,
                     "post_speckle_min_area": 0,
                 },
                 "source_art": [
@@ -133,6 +135,7 @@ class AIAssetPipelineTests(unittest.TestCase):
             self.assertTrue(output["resize_contract"]["linear_light"])
             self.assertTrue(output["resize_contract"]["premultiplied"])
             self.assertFalse(output["resize_contract"]["strict_hsv_post_cleanup"])
+            self.assertTrue(output["resize_contract"]["fit_visible_alpha_to_safe_area"])
             self.assertTrue(output["quality_gates"]["results"]["alpha_padding"]["pass"])
             self.assertTrue(output["quality_gates"]["results"]["visible_chroma_shadow"]["pass"])
 
@@ -146,10 +149,41 @@ class AIAssetPipelineTests(unittest.TestCase):
             with self.assertRaises(SpecError):
                 validate_spec(invalid_resize, root)
 
+            invalid_safe_fit = json.loads(json.dumps(spec))
+            invalid_safe_fit["approved_source_target_size"]["fit_visible_alpha_to_safe_area"] = "true"
+            with self.assertRaises(SpecError):
+                validate_spec(invalid_safe_fit, root)
+
             invalid_gate = json.loads(json.dumps(spec))
             invalid_gate["components"][0]["quality_gates"]["max_alpha_padding_px"] = -1
             with self.assertRaises(SpecError):
                 validate_spec(invalid_gate, root)
+
+    def test_safe_area_fit_preserves_alpha_instead_of_clearing_frame_edges(self) -> None:
+        frame = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).ellipse((0, 0, 99, 99), outline=(116, 72, 38, 255), width=8)
+
+        destructive = clean_existing_source_target_size(
+            frame,
+            (20, 20),
+            clear_outer_pixels=1,
+            post_speckle_min_area=0,
+            linear_light=True,
+            fit_visible_alpha_to_safe_area=False,
+        )
+        safe = clean_existing_source_target_size(
+            frame,
+            (20, 20),
+            clear_outer_pixels=1,
+            post_speckle_min_area=0,
+            linear_light=True,
+            fit_visible_alpha_to_safe_area=True,
+        )
+        destructive_alpha = np.asarray(destructive, dtype=np.uint8)[:, :, 3]
+        safe_alpha = np.asarray(safe, dtype=np.uint8)[:, :, 3]
+        self.assertEqual(alpha_bbox(safe, threshold=8), (1, 1, 19, 19))
+        self.assertGreater(int(safe_alpha.sum()), int(destructive_alpha.sum()))
+        self.assertGreater(int(safe_alpha[1, 10]), int(destructive_alpha[1, 10]))
 
     def test_alpha_padding_quality_gate_reports_edges_and_fails_closed(self) -> None:
         image = Image.new("RGBA", (10, 8), (0, 0, 0, 0))

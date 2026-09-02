@@ -78,6 +78,14 @@ punching after a severe reduction can notch legitimate dark red/brown bevel
 pixels. If enabled, inspect the target-size cutout as well as the gate result.
 Both switches are opt-in and are recorded in each output's `resize_contract`.
 
+If an alpha-tight selected source touches its canvas edge, a later
+`clear_outer_alpha_px` can manufacture the requested padding by deleting real
+art pixels. Set `fit_visible_alpha_to_safe_area: true` for that component. The
+pipeline then fits the visible alpha bounds into the target canvas inset by the
+declared clear width before the border clear runs. This is appropriate for
+closed frames and rings whose four cardinal extrema must remain intact; the
+resolved choice is recorded in `resize_contract`.
+
 Each component can declare `ue_texture`. UI color textures use
 `UserInterface2D`, sRGB, UI LOD, NoMipmaps, Clamp, Bilinear, and NeverStream.
 Single-channel masks use `Grayscale`, `TSF_G8`, and `srgb: false` with the same
@@ -136,7 +144,8 @@ overridden per component with the same object:
     "alpha_open_iterations": 0,
     "alpha_close_iterations": 0,
     "linear_light": true,
-    "strict_hsv_post_cleanup": false
+    "strict_hsv_post_cleanup": false,
+    "fit_visible_alpha_to_safe_area": false
   }
 }
 ```
