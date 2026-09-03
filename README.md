@@ -39,6 +39,9 @@ python Tools/AIWorkflowBootstrap/test_bootstrap.py
 - Opt-in strict-HSV key-shadow removal, alpha-padding budgets, visible
   chroma-shadow gates, linear-light premultiplied approved-source resizing,
   and non-destructive alpha-safe-area fitting for edge-touching cutouts.
+- Supersampled clip-only elliptical-annulus alpha cleanup for generated frames
+  whose non-key-coloured inner/outer fill fragments survive chroma extraction,
+  including optional lossless recropping with explicit input/output receipts.
 - Unreal Editor extension commands registered through MCPToolkit:
   `asset_pipeline_status`, `asset_pipeline_import_manifest`, and
   `asset_pipeline_verify_assets`.

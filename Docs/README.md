@@ -70,6 +70,38 @@ bands before component selection. Pair it with the blocking quality gate
 `max_visible_chroma_shadow_pixels: 0`; the normal mode remains unchanged for
 art that may legitimately contain magenta or red.
 
+If a generated circular/elliptical frame also contains non-key-coloured inner
+or outer fill/shadow fragments, use the clip-only fitted annulus postprocess:
+
+```json
+"postprocess": {
+  "ellipse_annulus_alpha_clip": {
+    "input_canvas_size": [1118, 1128],
+    "outer_box": [3.0, 2.0, 1115.0, 1125.0],
+    "inner_box": [69.5, 67.5, 1049.5, 1060.5],
+    "outer_rotation_degrees": 2.8,
+    "inner_rotation_degrees": -0.8,
+    "supersample": 8,
+    "transparent_rgb_dilation": 24,
+    "alpha_threshold": 8,
+    "max_outside_alpha_pixels": 0,
+    "recrop_pad_px": 2
+  }
+}
+```
+
+Boxes use pixel-edge coordinates in the selected/output canvas and may carry
+independent fitted-ellipse rotations. The operation
+intersects existing alpha with the supersampled annulus; it cannot add opacity
+or synthesize RGB art. The manifest automatically records a blocking
+`ellipse_annulus_alpha_clip` gate. Measure the boxes from the accepted frame
+geometry and inspect both inner and outer edges; this is not a substitute for
+arbitrary silhouette redesign. `recrop_pad_px` is optional and restricted to
+`source_quality_clean`; when present, `input_canvas_size` is mandatory. The
+pipeline crops the post-clip visible-alpha bounds without resampling, reports
+the input and output canvases plus crop box, and keeps the manifest scale
+contract at 1.0.
+
 For severe downscales where a thin approved bevel or silhouette apex collapses
 under the legacy sRGB resampler, `approved_source_target_size` may opt into
 `linear_light: true`. Keep `strict_hsv_post_cleanup` disabled unless the

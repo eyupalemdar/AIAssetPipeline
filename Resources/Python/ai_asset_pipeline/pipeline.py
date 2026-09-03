@@ -428,7 +428,54 @@ def _write_component(
         pass
     else:
         raise ValueError(f"Unsupported processing_mode for {component['component_id']}: {processing_mode}")
-    runtime = _apply_postprocess(runtime, component.get("postprocess", {}))
+    postprocess = component.get("postprocess", {})
+    pre_postprocess_size = runtime.size
+    annulus_config = (
+        postprocess.get("ellipse_annulus_alpha_clip")
+        if isinstance(postprocess, dict)
+        else None
+    )
+    if isinstance(annulus_config, dict) and "recrop_pad_px" in annulus_config:
+        declared_input_size = _ellipse_annulus_input_canvas_size(
+            annulus_config,
+            pre_postprocess_size,
+        )
+        if declared_input_size != pre_postprocess_size:
+            raise ValueError(
+                f"{component['component_id']} ellipse_annulus_alpha_clip input_canvas_size "
+                f"{declared_input_size} does not match selected canvas {pre_postprocess_size}"
+            )
+
+    postprocess_receipt: dict[str, Any] = {}
+    runtime = _apply_postprocess(runtime, postprocess, postprocess_receipt)
+    annulus_recrop = postprocess_receipt.get("ellipse_annulus_alpha_clip")
+    if isinstance(annulus_recrop, dict):
+        selector_info = dict(selector_info)
+        selector_info["postprocess_recrop"] = annulus_recrop
+    if runtime.size != pre_postprocess_size:
+        if not (
+            processing_mode == "source_quality_clean"
+            and isinstance(annulus_config, dict)
+            and "recrop_pad_px" in annulus_config
+            and isinstance(annulus_recrop, dict)
+        ):
+            raise ValueError(
+                f"{component['component_id']} postprocess changed canvas size from "
+                f"{pre_postprocess_size} to {runtime.size} without an approved source-quality annulus recrop"
+            )
+        annulus_recrop_box = tuple(int(value) for value in annulus_recrop["crop_box"])
+        expected_size = (
+            annulus_recrop_box[2] - annulus_recrop_box[0],
+            annulus_recrop_box[3] - annulus_recrop_box[1],
+        )
+        if runtime.size != expected_size:
+            raise ValueError(
+                f"{component['component_id']} annulus recrop produced {runtime.size}; expected {expected_size}"
+            )
+        # A recrop removes transparent canvas only; there is no raster resampling.
+        # Report the retained pixel canvas as both sides of the scale contract.
+        metadata_source_size = runtime.size
+        target_size = runtime.size
     runtime_file = runtime_dir / f"{component['runtime_asset_name']}.png"
     runtime.save(runtime_file)
     return _output_item(
@@ -953,7 +1000,11 @@ def _nine_slice_prerender(
     return _clean_source_quality(out, clear_outer_pixels)
 
 
-def _apply_postprocess(image: Image.Image, config: Any) -> Image.Image:
+def _apply_postprocess(
+    image: Image.Image,
+    config: Any,
+    receipt: dict[str, Any] | None = None,
+) -> Image.Image:
     if not isinstance(config, dict) or not config:
         return image
     rgba = image.convert("RGBA")
@@ -979,6 +1030,11 @@ def _apply_postprocess(image: Image.Image, config: Any) -> Image.Image:
             very_weak_alpha=int(cleanup_config.get("very_weak_alpha", 34)),
             dilation_iterations=int(cleanup_config.get("dilation_iterations", 24)),
         )
+    ellipse_annulus = config.get("ellipse_annulus_alpha_clip")
+    if ellipse_annulus:
+        if not isinstance(ellipse_annulus, dict):
+            raise ValueError("ellipse_annulus_alpha_clip postprocess must be an object")
+        rgba = _ellipse_annulus_alpha_clip_postprocess(rgba, ellipse_annulus, receipt)
     unsharp = config.get("unsharp_mask")
     if not isinstance(unsharp, dict):
         return rgba
@@ -1022,6 +1078,125 @@ def _postprocess_rect(config: dict[str, Any], key: str, default: tuple[float, fl
     if not isinstance(raw, list) or len(raw) != 4:
         raise ValueError(f"rounded_rect_luma_rim postprocess requires {key}=[x0,y0,x1,y1]")
     return tuple(float(v) for v in raw)
+
+
+def _ellipse_annulus_alpha_mask(size: tuple[int, int], config: dict[str, Any]) -> Image.Image:
+    width, height = size
+    if "outer_box" not in config or "inner_box" not in config:
+        raise ValueError("ellipse_annulus_alpha_clip requires outer_box and inner_box")
+    outer_box = _postprocess_rect(config, "outer_box", (0.0, 0.0, float(width), float(height)))
+    inner_box = _postprocess_rect(config, "inner_box", (1.0, 1.0, float(width - 1), float(height - 1)))
+    if not (outer_box[0] < outer_box[2] and outer_box[1] < outer_box[3]):
+        raise ValueError("ellipse_annulus_alpha_clip outer_box must have positive area")
+    if not (inner_box[0] < inner_box[2] and inner_box[1] < inner_box[3]):
+        raise ValueError("ellipse_annulus_alpha_clip inner_box must have positive area")
+    if not (
+        outer_box[0] <= inner_box[0]
+        and outer_box[1] <= inner_box[1]
+        and inner_box[2] <= outer_box[2]
+        and inner_box[3] <= outer_box[3]
+    ):
+        raise ValueError("ellipse_annulus_alpha_clip inner_box must be contained by outer_box")
+
+    supersample = max(4, int(config.get("supersample", 8)))
+    high_size = (width * supersample, height * supersample)
+    mask = Image.new("L", high_size, 0)
+    draw = ImageDraw.Draw(mask)
+
+    def ellipse_points(box: tuple[float, float, float, float], rotation_degrees: float) -> list[tuple[int, int]]:
+        center_x = (box[0] + box[2]) * 0.5
+        center_y = (box[1] + box[3]) * 0.5
+        radius_x = (box[2] - box[0]) * 0.5
+        radius_y = (box[3] - box[1]) * 0.5
+        rotation = math.radians(rotation_degrees)
+        cos_rotation = math.cos(rotation)
+        sin_rotation = math.sin(rotation)
+        steps = max(720, int(math.ceil(math.tau * max(radius_x, radius_y))))
+        points: list[tuple[int, int]] = []
+        for index in range(steps):
+            angle = math.tau * float(index) / float(steps)
+            local_x = math.cos(angle) * radius_x
+            local_y = math.sin(angle) * radius_y
+            x = center_x + local_x * cos_rotation - local_y * sin_rotation
+            y = center_y + local_x * sin_rotation + local_y * cos_rotation
+            points.append((int(round(x * supersample)), int(round(y * supersample))))
+        return points
+
+    draw.polygon(ellipse_points(outer_box, float(config.get("outer_rotation_degrees", 0.0))), fill=255)
+    draw.polygon(ellipse_points(inner_box, float(config.get("inner_rotation_degrees", 0.0))), fill=0)
+    return mask.resize(size, Image.Resampling.LANCZOS)
+
+
+def _ellipse_annulus_input_canvas_size(
+    config: dict[str, Any],
+    fallback: tuple[int, int],
+) -> tuple[int, int]:
+    raw = config.get("input_canvas_size")
+    if raw is None:
+        return fallback
+    if not isinstance(raw, list) or len(raw) != 2:
+        raise ValueError("ellipse_annulus_alpha_clip input_canvas_size must be [width,height]")
+    if any(type(value) is not int or value <= 0 for value in raw):
+        raise ValueError("ellipse_annulus_alpha_clip input_canvas_size values must be positive integers")
+    return int(raw[0]), int(raw[1])
+
+
+def _ellipse_annulus_recrop_box(
+    image: Image.Image,
+    config: dict[str, Any],
+) -> tuple[int, int, int, int]:
+    threshold = int(config.get("alpha_threshold", 8))
+    x0, y0, x1, y1 = alpha_bbox(image, threshold=threshold)
+    pad = max(0, int(config.get("recrop_pad_px", 0)))
+    return (
+        max(0, x0 - pad),
+        max(0, y0 - pad),
+        min(image.width, x1 + pad),
+        min(image.height, y1 + pad),
+    )
+
+
+def _ellipse_annulus_alpha_clip_postprocess(
+    image: Image.Image,
+    config: dict[str, Any],
+    receipt: dict[str, Any] | None = None,
+) -> Image.Image:
+    """Clip existing alpha to a declared elliptical annulus without adding art."""
+
+    declared_input_size = _ellipse_annulus_input_canvas_size(config, image.size)
+    if declared_input_size != image.size:
+        raise ValueError(
+            "ellipse_annulus_alpha_clip input_canvas_size "
+            f"{declared_input_size} does not match input image {image.size}"
+        )
+    rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()
+    annulus_image = _ellipse_annulus_alpha_mask(image.size, config)
+    annulus = np.asarray(annulus_image, dtype=np.uint8)
+    rgba[:, :, 3] = np.minimum(rgba[:, :, 3], annulus)
+    rgba = despill_visible_magenta(rgba)
+    rgba[rgba[:, :, 3] == 0, :3] = 0
+    dilation = max(0, int(config.get("transparent_rgb_dilation", 24)))
+    if dilation:
+        rgba = dilate_transparent_rgb(rgba, iterations=dilation)
+    hidden_chroma = hidden_saturated_chroma_mask(rgba)
+    if hidden_chroma.any():
+        rgba[hidden_chroma, :3] = 0
+    hidden_rgb_artifact = hidden_saturated_rgb_artifact_mask(rgba)
+    if hidden_rgb_artifact.any():
+        rgba[hidden_rgb_artifact, :3] = 0
+    output = Image.fromarray(rgba, "RGBA")
+    if "recrop_pad_px" in config:
+        crop_box = _ellipse_annulus_recrop_box(output, config)
+        output = output.crop(crop_box)
+        if receipt is not None:
+            receipt["ellipse_annulus_alpha_clip"] = {
+                "input_canvas_size": [image.width, image.height],
+                "crop_box": list(crop_box),
+                "output_canvas_size": [output.width, output.height],
+                "pad_px": int(config["recrop_pad_px"]),
+                "resampled": False,
+            }
+    return output
 
 
 def _rounded_rect_luma_rim_postprocess(image: Image.Image, config: dict[str, Any]) -> Image.Image:
@@ -1403,10 +1578,15 @@ def _evaluate_quality_gates(
     image: Image.Image,
     component: dict[str, Any],
     shape: dict[str, Any] | None,
+    selector_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = component.get("quality_gates", {})
-    if not isinstance(config, dict) or not config:
+    postprocess = component.get("postprocess", {})
+    annulus_config = postprocess.get("ellipse_annulus_alpha_clip") if isinstance(postprocess, dict) else None
+    if (not isinstance(config, dict) or not config) and not isinstance(annulus_config, dict):
         return {"configured": False, "all_pass": True, "results": {}}
+    if not isinstance(config, dict):
+        config = {}
     original = image.copy()
     rgba = np.asarray(original.convert("RGBA"), dtype=np.uint8)
     alpha = rgba[:, :, 3]
@@ -1469,6 +1649,58 @@ def _evaluate_quality_gates(
                 "threshold": padding_threshold,
                 "reason": "no alpha pixels above threshold",
             }
+
+    if isinstance(annulus_config, dict):
+        annulus_threshold = int(annulus_config.get("alpha_threshold", 8))
+        outside_limit = int(annulus_config.get("max_outside_alpha_pixels", 0))
+        input_size = _ellipse_annulus_input_canvas_size(annulus_config, original.size)
+        annulus_image = _ellipse_annulus_alpha_mask(input_size, annulus_config)
+        crop_box: tuple[int, int, int, int] | None = None
+        receipt_present = True
+        if "recrop_pad_px" in annulus_config:
+            recrop_receipt = (
+                selector_info.get("postprocess_recrop")
+                if isinstance(selector_info, dict)
+                else None
+            )
+            receipt_present = isinstance(recrop_receipt, dict)
+            if receipt_present:
+                raw_box = recrop_receipt.get("crop_box")
+                if isinstance(raw_box, list) and len(raw_box) == 4:
+                    crop_box = tuple(int(value) for value in raw_box)
+                    annulus_image = annulus_image.crop(crop_box)
+                else:
+                    receipt_present = False
+        mask_size_matches = annulus_image.size == original.size
+        if mask_size_matches:
+            annulus = np.asarray(annulus_image, dtype=np.uint8)
+            outside = (alpha > annulus_threshold) & (annulus <= annulus_threshold)
+            outside_count: int | None = int(outside.sum())
+        else:
+            outside_count = None
+        results["ellipse_annulus_alpha_clip"] = {
+            "pass": (
+                receipt_present
+                and mask_size_matches
+                and outside_count is not None
+                and outside_count <= outside_limit
+            ),
+            "outside_alpha_pixels": outside_count,
+            "limit": outside_limit,
+            "alpha_threshold": annulus_threshold,
+            "outer_box": [float(value) for value in annulus_config["outer_box"]],
+            "inner_box": [float(value) for value in annulus_config["inner_box"]],
+            "outer_rotation_degrees": float(annulus_config.get("outer_rotation_degrees", 0.0)),
+            "inner_rotation_degrees": float(annulus_config.get("inner_rotation_degrees", 0.0)),
+            "input_canvas_size": [input_size[0], input_size[1]],
+            "recrop_pad_px": int(annulus_config["recrop_pad_px"]) if "recrop_pad_px" in annulus_config else None,
+            "recrop_box": list(crop_box) if crop_box is not None else None,
+            "output_canvas_size": [original.width, original.height],
+            "mask_size_matches_output": mask_size_matches,
+            "recrop_receipt_present": receipt_present,
+            "clip_only": True,
+            "resampled": False,
+        }
 
     if "max_visible_chroma_shadow_pixels" in config:
         shadow_threshold = int(config.get("chroma_shadow_alpha_threshold", 8))
@@ -1794,7 +2026,7 @@ def _output_item(
     canonical_shape_id = str(component.get("canonical_shape_id", ""))
     canonical_shape = _canonical_shape_map(spec).get(canonical_shape_id) if canonical_shape_id else None
     with Image.open(runtime_file) as runtime_image:
-        quality_gates = _evaluate_quality_gates(runtime_image.copy(), component, canonical_shape)
+        quality_gates = _evaluate_quality_gates(runtime_image.copy(), component, canonical_shape, selector_info)
     synthetic_source_paths = {
         "derived-from-runtime-silhouette",
         "derived-from-canonical-shape",

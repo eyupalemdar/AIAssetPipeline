@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.12 - Elliptical Annulus Alpha Clip
+
+- Added opt-in `postprocess.ellipse_annulus_alpha_clip` for generated circular
+  and elliptical frames whose non-key-coloured inner/outer shadow fill survives
+  chroma extraction.
+- The operation is clip-only: it intersects existing alpha with a supersampled
+  declared annulus and never adds opacity, RGB art, or geometry.
+- Added fail-closed box/type validation, manifest receipt, an automatic
+  outside-annulus alpha gate, and end-to-end regression coverage.
+- Added optional lossless post-clip alpha-bound recropping with an explicit input-canvas
+  contract so corrected source-quality probes retain scale 1.0 and audited
+  padding rather than carrying a newly transparent oversized canvas.
+
 ## 0.1.11 - Non-Destructive Alpha Safe-Area Fit
 
 - Added opt-in `fit_visible_alpha_to_safe_area` handling for alpha-tight

@@ -96,6 +96,64 @@ def _validate_approved_source_target_size(value: Any, owner: str) -> None:
             _require(type(value[field]) is bool, f"{owner}.{field} must be a boolean")
 
 
+def _validate_ellipse_annulus_alpha_clip(value: Any, owner: str) -> None:
+    _require(isinstance(value, dict), f"{owner} must be an object")
+    boxes: dict[str, list[float]] = {}
+    for field in ("outer_box", "inner_box"):
+        raw = value.get(field)
+        _require(isinstance(raw, list) and len(raw) == 4, f"{owner}.{field} must be [x0,y0,x1,y1]")
+        _require(all(type(item) in {int, float} for item in raw), f"{owner}.{field} values must be numbers")
+        box = [float(item) for item in raw]
+        _require(box[0] < box[2] and box[1] < box[3], f"{owner}.{field} must have positive area")
+        boxes[field] = box
+    outer = boxes["outer_box"]
+    inner = boxes["inner_box"]
+    _require(
+        outer[0] <= inner[0] and outer[1] <= inner[1] and inner[2] <= outer[2] and inner[3] <= outer[3],
+        f"{owner}.inner_box must be contained by outer_box",
+    )
+    if "supersample" in value:
+        _require(
+            type(value["supersample"]) is int and value["supersample"] >= 4,
+            f"{owner}.supersample must be an integer >= 4",
+        )
+    if "transparent_rgb_dilation" in value:
+        _require(
+            type(value["transparent_rgb_dilation"]) is int and value["transparent_rgb_dilation"] >= 0,
+            f"{owner}.transparent_rgb_dilation must be a non-negative integer",
+        )
+    for field in ("alpha_threshold", "max_outside_alpha_pixels"):
+        if field in value:
+            _require(type(value[field]) is int and value[field] >= 0, f"{owner}.{field} must be a non-negative integer")
+    if "alpha_threshold" in value:
+        _require(value["alpha_threshold"] <= 254, f"{owner}.alpha_threshold must be <= 254")
+    for field in ("outer_rotation_degrees", "inner_rotation_degrees"):
+        if field in value:
+            _require(type(value[field]) in {int, float}, f"{owner}.{field} must be a number")
+    if "input_canvas_size" in value:
+        canvas = value["input_canvas_size"]
+        _require(
+            isinstance(canvas, list)
+            and len(canvas) == 2
+            and all(type(item) is int and item > 0 for item in canvas),
+            f"{owner}.input_canvas_size must be [positive_width,positive_height]",
+        )
+        _require(
+            0.0 <= outer[0] < outer[2] <= float(canvas[0])
+            and 0.0 <= outer[1] < outer[3] <= float(canvas[1]),
+            f"{owner}.outer_box must be inside input_canvas_size",
+        )
+    if "recrop_pad_px" in value:
+        _require(
+            type(value["recrop_pad_px"]) is int and value["recrop_pad_px"] >= 0,
+            f"{owner}.recrop_pad_px must be a non-negative integer",
+        )
+        _require(
+            "input_canvas_size" in value,
+            f"{owner}.input_canvas_size is required when recrop_pad_px is configured",
+        )
+
+
 def _validate_cutout_quality_gates(value: dict[str, Any], owner: str) -> None:
     integer_ranges = {
         "alpha_padding_threshold": (0, 254),
@@ -249,6 +307,18 @@ def _validate_component(
             component.get("approved_source_target_size", {}),
             f"{component_id}.approved_source_target_size",
         )
+        postprocess = component.get("postprocess", {})
+        _require(isinstance(postprocess, dict), f"{component_id}.postprocess must be an object")
+        if "ellipse_annulus_alpha_clip" in postprocess:
+            _validate_ellipse_annulus_alpha_clip(
+                postprocess["ellipse_annulus_alpha_clip"],
+                f"{component_id}.postprocess.ellipse_annulus_alpha_clip",
+            )
+            if "recrop_pad_px" in postprocess["ellipse_annulus_alpha_clip"]:
+                _require(
+                    processing_mode == "source_quality_clean",
+                    f"{component_id}.postprocess.ellipse_annulus_alpha_clip recrop requires processing_mode=source_quality_clean",
+                )
         ue_texture = component.get("ue_texture", {})
         _require(isinstance(ue_texture, dict), f"{component_id} ue_texture must be an object")
         if processing_mode == "canonical_shape_shadow_mask":

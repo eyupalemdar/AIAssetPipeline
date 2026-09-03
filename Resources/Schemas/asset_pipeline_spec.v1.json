@@ -386,6 +386,44 @@
           },
           "additionalProperties": true
         },
+        "postprocess": {
+          "type": "object",
+          "properties": {
+            "ellipse_annulus_alpha_clip": {
+              "type": "object",
+              "required": ["outer_box", "inner_box"],
+              "properties": {
+                "outer_box": {
+                  "type": "array",
+                  "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}, {"type": "number"}],
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "inner_box": {
+                  "type": "array",
+                  "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}, {"type": "number"}],
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "outer_rotation_degrees": {"type": "number"},
+                "inner_rotation_degrees": {"type": "number"},
+                "input_canvas_size": {
+                  "type": "array",
+                  "prefixItems": [{"type": "integer", "minimum": 1}, {"type": "integer", "minimum": 1}],
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "supersample": {"type": "integer", "minimum": 4},
+                "transparent_rgb_dilation": {"type": "integer", "minimum": 0},
+                "alpha_threshold": {"type": "integer", "minimum": 0, "maximum": 254},
+                "max_outside_alpha_pixels": {"type": "integer", "minimum": 0},
+                "recrop_pad_px": {"type": "integer", "minimum": 0}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        },
         "canonical_shape_id": { "type": "string", "minLength": 1 },
         "canonical_shape_color": {
           "type": "object",

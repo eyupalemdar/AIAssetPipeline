@@ -15,7 +15,7 @@ PROJECT_ROOT = PYTHON_DIR.parents[3]
 if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
-from ai_asset_pipeline.pipeline import _evaluate_quality_gates, package_spec
+from ai_asset_pipeline.pipeline import _apply_postprocess, _evaluate_quality_gates, package_spec
 from ai_asset_pipeline.image_ops import (
     alpha_bbox,
     chroma_to_alpha,
@@ -38,6 +38,142 @@ V10_TSPEC = PROJECT_ROOT / "Docs/Tasarim/UI_TSpecs/Probe_SeatPlate_DarkIntegrate
 
 
 class AIAssetPipelineTests(unittest.TestCase):
+    def test_ellipse_annulus_alpha_clip_removes_inner_and_outer_fill_without_adding_alpha(self) -> None:
+        image = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((8, 6, 119, 121), fill=(112, 70, 34, 255))
+        draw.ellipse((28, 26, 99, 101), fill=(0, 0, 0, 0))
+        draw.rectangle((62, 0, 65, 10), fill=(86, 38, 24, 255))
+        draw.rectangle((62, 24, 65, 48), fill=(86, 38, 24, 255))
+        image.putpixel((12, 64), (0, 0, 0, 0))
+        config = {
+            "outer_box": [8.0, 6.0, 120.0, 122.0],
+            "inner_box": [28.0, 26.0, 100.0, 102.0],
+            "outer_rotation_degrees": 2.0,
+            "inner_rotation_degrees": -1.0,
+            "supersample": 8,
+            "transparent_rgb_dilation": 8,
+            "alpha_threshold": 8,
+            "max_outside_alpha_pixels": 0,
+        }
+
+        clipped = _apply_postprocess(image, {"ellipse_annulus_alpha_clip": config})
+        alpha = np.asarray(clipped, dtype=np.uint8)[:, :, 3]
+        self.assertEqual(int(alpha[2, 64]), 0)
+        self.assertEqual(int(alpha[40, 64]), 0)
+        self.assertGreater(int(alpha[14, 64]), 200)
+        self.assertEqual(int(alpha[64, 12]), 0)
+
+        quality = _evaluate_quality_gates(
+            clipped,
+            {
+                "postprocess": {"ellipse_annulus_alpha_clip": config},
+                "quality_gates": {"blocking": True},
+            },
+            None,
+        )
+        self.assertTrue(quality["all_pass"])
+        self.assertEqual(quality["results"]["ellipse_annulus_alpha_clip"]["outside_alpha_pixels"], 0)
+        self.assertTrue(quality["results"]["ellipse_annulus_alpha_clip"]["clip_only"])
+
+        recrop_config = {
+            **config,
+            "input_canvas_size": [128, 128],
+            "recrop_pad_px": 2,
+        }
+        postprocess_receipt: dict[str, object] = {}
+        recropped = _apply_postprocess(
+            image,
+            {"ellipse_annulus_alpha_clip": recrop_config},
+            postprocess_receipt,
+        )
+        self.assertLess(recropped.width, image.width)
+        self.assertLess(recropped.height, image.height)
+        recrop_bbox = alpha_bbox(recropped, threshold=8)
+        recrop_padding = [
+            recrop_bbox[0],
+            recrop_bbox[1],
+            recropped.width - recrop_bbox[2],
+            recropped.height - recrop_bbox[3],
+        ]
+        self.assertLessEqual(max(recrop_padding), 2)
+        recrop_quality = _evaluate_quality_gates(
+            recropped,
+            {
+                "postprocess": {"ellipse_annulus_alpha_clip": recrop_config},
+                "quality_gates": {"blocking": True},
+            },
+            None,
+            {"postprocess_recrop": postprocess_receipt["ellipse_annulus_alpha_clip"]},
+        )
+        self.assertTrue(recrop_quality["all_pass"])
+        recrop_gate = recrop_quality["results"]["ellipse_annulus_alpha_clip"]
+        self.assertTrue(recrop_gate["mask_size_matches_output"])
+        self.assertEqual(recrop_gate["input_canvas_size"], [128, 128])
+        self.assertEqual(recrop_gate["output_canvas_size"], list(recropped.size))
+        self.assertFalse(recrop_gate["resampled"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Test.uproject").write_text("{}", encoding="utf-8")
+            image.save(root / "source.png")
+            (root / "prompt.md").write_text("synthetic annulus fixture", encoding="utf-8")
+            spec = {
+                "$schema": "ai-asset-pipeline-spec-v1",
+                "run_id": "ellipse-annulus-alpha-clip",
+                "validation_policy": "fail_closed",
+                "runtime_output_dir": "runtime",
+                "review_output_dir": "review",
+                "processing": {"clear_outer_alpha_px": 0},
+                "source_art": [{
+                    "id": "frame",
+                    "path": "source.png",
+                    "prompt_files": ["prompt.md"],
+                    "provenance": {"provider": "fixture", "model": "unit-test", "generation_id": "annulus-1"},
+                }],
+                "components": [{
+                    "component_id": "frame",
+                    "source_art_id": "frame",
+                    "selector": {"type": "bbox", "box": [0, 0, 128, 128]},
+                    "draw_rect": [0, 0, 128, 128],
+                    "asset_suffix": "Frame",
+                    "runtime_asset_name": "T_Frame",
+                    "ue_asset_name": "T_Frame",
+                    "texture_type": "color",
+                    "processing_mode": "source_quality_clean",
+                    "postprocess": {"ellipse_annulus_alpha_clip": recrop_config},
+                    "quality_gates": {
+                        "blocking": True,
+                        "alpha_padding_threshold": 8,
+                        "max_alpha_padding_px": 2,
+                    },
+                }],
+            }
+            validate_spec(spec, root)
+            spec_path = root / "spec.json"
+            spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+            packaged = package_spec(spec_path, project_root=root)
+            manifest = json.loads((root / packaged["manifest"]).read_text(encoding="utf-8"))
+            gate = manifest["outputs"][0]["quality_gates"]["results"]["ellipse_annulus_alpha_clip"]
+            self.assertTrue(gate["pass"])
+            self.assertEqual(gate["outside_alpha_pixels"], 0)
+            output = manifest["outputs"][0]
+            self.assertEqual(output["source_size"], output["target_size"])
+            self.assertEqual(output["target_size"], list(recropped.size))
+            self.assertEqual(output["scale_x"], 1.0)
+            self.assertEqual(output["scale_y"], 1.0)
+            self.assertFalse(output["selector"]["postprocess_recrop"]["resampled"])
+
+            invalid = json.loads(json.dumps(spec))
+            invalid["components"][0]["postprocess"]["ellipse_annulus_alpha_clip"]["inner_box"] = [0, 0, 127, 127]
+            with self.assertRaises(SpecError):
+                validate_spec(invalid, root)
+
+            invalid_recrop = json.loads(json.dumps(spec))
+            del invalid_recrop["components"][0]["postprocess"]["ellipse_annulus_alpha_clip"]["input_canvas_size"]
+            with self.assertRaises(SpecError):
+                validate_spec(invalid_recrop, root)
+
     def test_strict_hsv_chroma_removes_dark_key_shadow_and_keeps_brown_art(self) -> None:
         image = Image.new("RGBA", (12, 10), (255, 0, 216, 255))
         draw = ImageDraw.Draw(image)
