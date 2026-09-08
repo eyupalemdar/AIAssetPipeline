@@ -1,5 +1,31 @@
 # AIAssetPipeline
 
+## 0.1.13 — reusable approved-pixel techniques
+
+- `approved_rgba_resize.atlas_grid: [columns, rows]` filters atlas cells
+  independently, including transparent RGB bleed. Source/target dimensions must
+  divide into whole cells. The native profile must remain `NoMipmaps` because
+  engine-generated atlas tails could cross cell boundaries.
+- Standalone colour components may declare `authored_mips: {"count": 3}` with
+  `LeaveExistingMips`. Every level samples the original with the same continuous
+  source box. Packaging writes a BGRA8 DDS, PNG preview and per-mip PNG/hash
+  records. Native import uses the existing source-mip validation/readback.
+- Existing approved inputs may use `provenance.kind: "existing_approved"`,
+  `provider`, a verified `source_sha256`, and `authority_files` referencing the
+  source/approval contract. No invented model/generation IDs are required for
+  that route. New generated art retains normal prompt/provenance and approval
+  requirements; metadata does not itself grant approval.
+
+The 2026-09-07 regression run passed 42 tests and reproduced all eleven approved
+SeatPlate DDS chains byte-for-byte and all three approved tile PNGs
+pixel-for-pixel. Examples and receipts are preserved in the gameplay fidelity
+safe-stop checkpoint. ProjectOkey's maintained examples and reproduction command
+are now in `Docs/AIAssetPipeline/Examples/ApprovedGameplayFidelity20260907/` and
+`Scripts/Tools/package_approved_gameplay_fidelity.py`. Historical producer
+entrypoints direct new invocations to this generic path. A fresh run reproduced
+all 14 outputs and matched native import sizes/settings/source mips without
+post-import repair or force overwrites.
+
 Provider-agnostic Unreal Editor plugin for turning already-generated source art
 plus metadata into UE-ready texture packages with manifest validation, review
 outputs, and guarded editor import.
@@ -7,6 +33,36 @@ outputs, and guarded editor import.
 AIAssetPipeline does not call image models and does not mutate Widget
 Blueprints. Image providers such as Image 2.0 or other generators are recorded
 only as `source_art[].provenance` metadata.
+
+## Approved RGBA reduction and authored mips
+
+For already-approved colour RGBA, use `processing_mode: approved_rgba_resize`
+and `selector: {"type": "full_image_raw"}`. The optional
+`approved_rgba_resize.sampling_box` is `[left, top, right, bottom]` in original
+source-pixel coordinates, including any transparent padding. Reuse the same box
+at every mip size. The output is straight RGBA; filtering uses linear-light
+premultiplied float channels and Lanczos. `rgb_dilation_iterations` defaults to8
+and affects only alpha-zero RGB. No re-keying, hue cleanup, speckle removal,
+per-level recrop or forced border clearing occurs. Postprocess is rejected.
+
+This opt-in path fixes deletion of legitimate gold/bright AA by the legacy
+post-resize despill. Historical modes remain byte-compatible. Colour heuristics
+remain in raw diagnostics, but an approved RGBA manifest evaluates preserved
+filtered coverage instead of deleting pixels to force those counts to zero.
+`resize_contract.approved_rgba` records the source hash, sampling box and filtered
+alpha hash; `all_approved_rgba_alpha_preserved` is required for these outputs.
+The historical aggregate alpha-contract booleans mean policy satisfaction,
+including explicitly declared exceptions; they are not raw zero-count claims.
+
+Native manifest import now supports `Default` compression, `LeaveExistingMips`,
+`Project01` and trilinear sampling in addition to the previous no-mip UI path.
+Optional per-output `source_mip_count` verifies imported authored levels.
+Readback distinguishes `source_mips`/`source_mip_count` from `runtime_mip_count`:
+UE may append a lower mip tail. Existing mismatched assets are errors, not
+successful skips. Requested settings are preserved and verified after saving.
+Packed/linear masks must continue to use their dedicated processing paths.
+Logical `draw_rect` values retain fractional coordinates; texture target sizes
+remain integers. The same source sampling box must be used for every mip.
 
 ## Host-project integration
 

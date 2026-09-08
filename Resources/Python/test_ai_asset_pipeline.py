@@ -17,6 +17,8 @@ if str(PYTHON_DIR) not in sys.path:
 
 from ai_asset_pipeline.pipeline import _apply_postprocess, _evaluate_quality_gates, package_spec
 from ai_asset_pipeline.image_ops import (
+    resize_approved_rgba,
+    despill_visible_magenta,
     alpha_bbox,
     chroma_to_alpha,
     chroma_to_alpha_strict_hsv,
@@ -2164,6 +2166,111 @@ class AIAssetPipelineTests(unittest.TestCase):
                 manifest["alpha_contract"]["waivers"][0]["fields"],
                 ["allow_opaque_full_frame"],
             )
+
+
+class ApprovedRGBAResizeTests(unittest.TestCase):
+    def test_atlas_cells_do_not_mix_even_without_padding(self):
+        source = Image.new("RGBA", (16, 8), (255, 0, 0, 255))
+        ImageDraw.Draw(source).rectangle((8, 0, 15, 7), fill=(0, 0, 255, 255))
+        out = np.asarray(resize_approved_rgba(source, (8, 4), atlas_grid=(2, 1)))
+        self.assertTrue(np.all(out[:, :4] == (255, 0, 0, 255)))
+        self.assertTrue(np.all(out[:, 4:] == (0, 0, 255, 255)))
+        with self.assertRaises(ValueError):resize_approved_rgba(source, (7, 4), atlas_grid=(2, 1))
+
+    def test_authored_mips_are_source_aligned_and_packaged_losslessly(self):
+        from ai_asset_pipeline.image_ops import generate_approved_mips
+        import struct
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp);create_smoke_fixture(root)
+            path = next(root.rglob("*.aiasset.json"));spec = json.loads(path.read_text())
+            comp = spec["components"][0]
+            comp.update(processing_mode="approved_rgba_resize", selector={"type":"full_image_raw"},
+                        target_size=[48, 48], authored_mips={"count":3},
+                        approved_rgba_resize={"sampling_box":[-4,-4,68,68]},
+                        ue_texture={"compression":"Default","mip_gen":"LeaveExistingMips","lod_group":"Project01","filter":"Trilinear"})
+            path.write_text(json.dumps(spec));result = package_spec(path, project_root=root)
+            manifest = json.loads((root/result["manifest"]).read_text());item = manifest["outputs"][0]
+            self.assertEqual(item["source_mip_count"], 3)
+            source = Image.open(root/spec["source_art"][0]["path"]).convert("RGBA")
+            expected = generate_approved_mips(source, (48,48), 3, sampling_box=(-4,-4,68,68))
+            payload = (root/item["runtime_file"]).read_bytes()
+            self.assertEqual(payload[:4], b"DDS ");self.assertEqual(struct.unpack_from('<I',payload,28)[0],3)
+            self.assertEqual(len(payload),128+sum(x.width*x.height*4 for x in expected))
+            offset=128
+            for record,level in zip(item["source_mips"],expected):
+                np.testing.assert_array_equal(np.asarray(Image.open(root/record["png"])),np.asarray(level))
+                raw=np.asarray(level)[:,:,[2,1,0,3]].tobytes();self.assertEqual(payload[offset:offset+len(raw)],raw);offset+=len(raw)
+            np.testing.assert_array_equal(np.asarray(Image.open(root/item["runtime_file"])),np.asarray(expected[0]))
+            comp["ue_texture"]["mip_gen"]="NoMipmaps";path.write_text(json.dumps(spec))
+            with self.assertRaises(ValueError):package_spec(path,project_root=root)
+
+    def test_existing_approved_sources_require_an_unchanged_hash(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);create_smoke_fixture(root)
+            path=next(root.rglob("*.aiasset.json"));spec=json.loads(path.read_text())
+            source=spec["source_art"][0];source["authority_files"]=source.pop("prompt_files")
+            source["provenance"]={"kind":"existing_approved","provider":"project-approved-source",
+                                  "source_sha256":hashlib.sha256((root/source["path"]).read_bytes()).hexdigest()}
+            validate_spec(spec,root)
+            Image.new('RGBA',(64,64),(12,34,56,78)).save(root/source["path"])
+            with self.assertRaises(SpecError):validate_spec(spec,root)
+
+    def test_gold_and_white_antialias_survives_without_changing_source(self):
+        pixels = np.zeros((16, 16, 4), dtype=np.uint8)
+        pixels[3:13, 3:13] = (180, 120, 45, 255)
+        pixels[2, 3:13] = (230, 200, 140, 96)
+        pixels[13, 3:13] = (240, 240, 240, 128)
+        source = Image.fromarray(pixels)
+        result = np.asarray(resize_approved_rgba(source, source.size))
+        np.testing.assert_array_equal(result[:, :, 3], pixels[:, :, 3])
+        np.testing.assert_allclose(result[pixels[:, :, 3] > 0, :3], pixels[pixels[:, :, 3] > 0, :3], atol=1)
+        np.testing.assert_array_equal(np.asarray(source), pixels)
+        # This is the original regression: legacy key cleanup deletes these AA rows.
+        legacy = despill_visible_magenta(pixels)
+        self.assertEqual(int(legacy[2, 5, 3]), 0)
+        self.assertEqual(int(legacy[13, 5, 3]), 0)
+
+    def test_filter_is_linear_light_and_alpha_weighted(self):
+        source = Image.fromarray(np.array([[[255, 255, 255, 255], [0, 0, 0, 255]]], dtype=np.uint8))
+        result = np.asarray(resize_approved_rgba(source, (1, 1), rgb_dilation_iterations=0))[0, 0]
+        self.assertTrue(186 <= int(result[0]) <= 189)  # sRGB encoding of half linear light
+        self.assertEqual(int(result[3]), 255)
+        source.putpixel((1, 0), (255, 0, 255, 0))
+        result = np.asarray(resize_approved_rgba(source, (1, 1)))[0, 0]
+        np.testing.assert_array_equal(result[:3], [255, 255, 255])
+        self.assertTrue(127 <= int(result[3]) <= 128)
+
+    def test_shared_fractional_box_retains_center_and_coverage(self):
+        source = Image.new("RGBA", (80, 80), (0, 0, 0, 0))
+        ImageDraw.Draw(source).rectangle((20, 20, 59, 59), fill=(180, 120, 45, 255))
+        areas = []
+        for extent in (48, 24, 12):
+            alpha = np.asarray(resize_approved_rgba(source, (extent, extent), sampling_box=(-8, -8, 88, 88)))[:, :, 3] / 255.
+            y, x = np.indices(alpha.shape)
+            self.assertAlmostEqual(float((x * alpha).sum() / alpha.sum()), (extent - 1) / 2, places=4)
+            areas.append(float(alpha.mean()))
+        self.assertLess(max(areas) - min(areas), .015)
+
+    def test_package_preservation_contract_and_authored_mip_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = create_smoke_fixture(root)
+            path = next(root.rglob("*.aiasset.json"))
+            spec = json.loads(path.read_text(encoding="utf-8"))
+            Image.new("RGBA", (64, 64), (180, 120, 45, 128)).save(root / spec["source_art"][0]["path"])
+            component = spec["components"][0]
+            component.update(processing_mode="approved_rgba_resize", selector={"type": "full_image_raw"},
+                             ue_texture={"compression": "Default", "mip_gen": "LeaveExistingMips", "lod_group": "Project01", "filter": "Trilinear"})
+            path.write_text(json.dumps(spec), encoding="utf-8")
+            result = package_spec(path, project_root=root)
+            manifest = json.loads((root / result["manifest"]).read_text(encoding="utf-8"))
+            self.assertTrue(manifest["alpha_contract"]["all_approved_rgba_alpha_preserved"])
+            self.assertTrue(manifest["ue_texture_contract"]["all_ue_texture_settings_valid"])
+            out = np.asarray(Image.open(root / manifest["outputs"][0]["runtime_file"]))
+            self.assertTrue(np.all(out[:, :, 3] == 128))
+            component["postprocess"] = {"alpha_threshold": 160}
+            with self.assertRaises(SpecError): validate_spec(spec, root)
 
 
 if __name__ == "__main__":

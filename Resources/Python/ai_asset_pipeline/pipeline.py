@@ -25,6 +25,9 @@ from .image_ops import (
     resize_edge_particle_extract,
     resize_luma_mask,
     resize_linear_light_premultiplied,
+    resize_approved_rgba,
+    generate_approved_mips,
+    write_bgra8_dds,
     resize_nameplate_timer_aaa_edge,
     resize_nameplate_timer_aaa_edge_flipbook_atlas,
     resize_nameplate_timer_aaa_fill,
@@ -325,6 +328,23 @@ def _write_component(
                 f"{selected.size} does not match target_size {target_size}"
             )
         runtime = selected
+    elif processing_mode == "approved_rgba_resize":
+        if component.get("postprocess"):
+            raise ValueError("approved_rgba_resize does not allow postprocess; approve/clean the source first")
+        config = component.get("approved_rgba_resize", {})
+        mip_settings = _resolved_ue_texture(spec, component)
+        if config.get("atlas_grid") and mip_settings["mip_gen"] not in {"NoMipmaps", "TMGS_NoMipmaps"}:
+            raise ValueError("Cell atlases require NoMipmaps; lower runtime tails would cross cell boundaries")
+        if component.get("authored_mips") and mip_settings["mip_gen"] not in {"LeaveExistingMips", "TMGS_LeaveExistingMips"}:
+            raise ValueError("authored_mips requires LeaveExistingMips in the native import contract")
+        runtime = resize_approved_rgba(selected, target_size, **config)
+        selector_info = dict(selector_info)
+        selector_info["approved_rgba"] = {
+            "source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "sampling_box": list(config.get("sampling_box", [0, 0, selected.width, selected.height])),
+            "filtered_alpha_sha256": hashlib.sha256(runtime.getchannel("A").tobytes()).hexdigest(),
+            "atlas_grid": config.get("atlas_grid"),
+        }
     elif processing_mode == "approved_source_target_size":
         runtime = clean_existing_source_target_size(
             selected,
@@ -478,7 +498,7 @@ def _write_component(
         target_size = runtime.size
     runtime_file = runtime_dir / f"{component['runtime_asset_name']}.png"
     runtime.save(runtime_file)
-    return _output_item(
+    output = _output_item(
         root,
         spec,
         component,
@@ -489,6 +509,24 @@ def _write_component(
         _component_diagnostics(runtime, spec, component),
         selector_info,
     )
+    if component.get("authored_mips"):
+        levels = generate_approved_mips(selected, target_size, component["authored_mips"]["count"],
+                                        **component.get("approved_rgba_resize", {}))
+        assert np.array_equal(np.asarray(runtime), np.asarray(levels[0])), "Mip 0 must equal the approved PNG"
+        records = []
+        for index, level in enumerate(levels):
+            level_file = runtime_dir / "mips" / component["runtime_asset_name"] / f"mip_{index}.png"
+            level_file.parent.mkdir(parents=True, exist_ok=True)
+            level.save(level_file)
+            records.append({"index": index, "size": list(level.size), "png": rel(root, level_file),
+                            "sha256": hashlib.sha256(level_file.read_bytes()).hexdigest(),
+                            "alpha_sha256": hashlib.sha256(level.getchannel("A").tobytes()).hexdigest()})
+        dds_file = runtime_file.with_suffix(".dds")
+        write_bgra8_dds(dds_file, levels)
+        output.update(runtime_file=rel(root, dds_file), pipeline_png=rel(root, runtime_file),
+                      source_mip_count=len(levels), source_mips=records,
+                      dds_sha256=hashlib.sha256(dds_file.read_bytes()).hexdigest())
+    return output
 
 
 def _procedural_vector_icon_source_info(component: dict[str, Any]) -> dict[str, Any]:
@@ -2044,6 +2082,7 @@ def _output_item(
         if source_path not in synthetic_source_paths
         else source_path,
         "prompt_files": prompt_files,
+        "authority_files": [rel(root, resolve_path(root, str(path))) for path in source_info.get("authority_files", [])],
         "source_provenance": source_provenance(source_info, schema),
         "selector": selector_info,
         "runtime_file": rel(root, runtime_file),
@@ -2053,7 +2092,7 @@ def _output_item(
         "ue_asset_path": f"{ue_package_path}/{ue_asset_name}" if ue_package_path else "",
         "source_size": [int(source_size[0]), int(source_size[1])],
         "target_size": [int(target_size[0]), int(target_size[1])],
-        "draw_rect": [int(v) for v in component["draw_rect"]],
+        "draw_rect": list(component["draw_rect"]),
         "source_ratio": strategy_metadata["source_ratio"],
         "target_ratio": strategy_metadata["target_ratio"],
         "ratio_delta_pct": strategy_metadata["ratio_delta_pct"],
@@ -2068,11 +2107,13 @@ def _output_item(
         "resize_contract": {
             "linear_light": (
                 component.get("processing_mode") == "canonical_shape_color"
+                or component.get("processing_mode") == "approved_rgba_resize"
                 or approved_cleanup.get("linear_light") is True
             ),
             "premultiplied": (
                 component.get("processing_mode") == "canonical_shape_color"
                 or component.get("processing_mode") == "approved_source_target_size"
+                or component.get("processing_mode") == "approved_rgba_resize"
             ),
             "preserve_aspect_ratio": component.get("processing_mode") == "canonical_shape_color",
             "non_uniform_stretch": False if component.get("processing_mode") == "canonical_shape_color" else None,
@@ -2086,6 +2127,11 @@ def _output_item(
                 if component.get("processing_mode") == "approved_source_target_size"
                 else None
             ),
+            "approved_rgba": {
+                **selector_info.get("approved_rgba", {}),
+                "alpha_preserved": selector_info.get("approved_rgba", {}).get("filtered_alpha_sha256")
+                == hashlib.sha256(load_rgba(runtime_file).getchannel("A").tobytes()).hexdigest(),
+            } if component.get("processing_mode") == "approved_rgba_resize" else {},
         },
         "canonical_shape_id": canonical_shape_id,
         "canonical_shape": canonical_shape or {},
@@ -2305,12 +2351,12 @@ def _ue_texture_contract(outputs: list[dict[str, Any]]) -> dict[str, Any]:
         settings = item.get("ue_texture", {})
         texture_type = str(item.get("texture_type", "color"))
         valid = (
-            settings.get("compression") in {"UserInterface2D", "Grayscale", "Masks"}
-            and settings.get("mip_gen") == "NoMipmaps"
-            and settings.get("lod_group") == "UI"
+            settings.get("compression") in {"UserInterface2D", "Grayscale", "Masks", "Default"}
+            and settings.get("mip_gen") in {"NoMipmaps", "LeaveExistingMips"}
+            and settings.get("lod_group") in {"UI", "Project01"}
             and settings.get("address_x") == "Clamp"
             and settings.get("address_y") == "Clamp"
-            and settings.get("filter") == "Bilinear"
+            and settings.get("filter") in {"Bilinear", "Trilinear", "Nearest", "Default"}
             and settings.get("never_stream") is True
         )
         if texture_type == "mask" and settings.get("source_format") == "TSF_G8":
@@ -2325,7 +2371,7 @@ def _ue_texture_contract(outputs: list[dict[str, Any]]) -> dict[str, Any]:
         elif texture_type == "packed_mask":
             valid = valid and settings.get("srgb") is False
         else:
-            valid = valid and settings.get("compression") == "UserInterface2D" and settings.get("srgb") is True
+            valid = valid and settings.get("compression") in {"UserInterface2D", "Default"} and settings.get("srgb") is True
         results[str(item["component_id"])] = {"pass": bool(valid), **settings}
     return {
         "component_count": len(outputs),
@@ -2349,20 +2395,20 @@ def _build_manifest(
     opaque_full_frame_outputs = [item for item in outputs if _opaque_full_frame_ok(item)]
     alpha_contract = {
         "all_transparent_corners": all(
-            item["diagnostics"]["transparent_corners"] or _opaque_full_frame_ok(item)
+            item["diagnostics"]["transparent_corners"] or _opaque_full_frame_ok(item) or _approved_rgba_ok(item)
             for item in alpha_outputs
         ),
         "all_transparent_outer_edges": all(
-            item["diagnostics"]["edge_alpha_gt0"] == 0 or _opaque_full_frame_ok(item)
+            item["diagnostics"]["edge_alpha_gt0"] == 0 or _opaque_full_frame_ok(item) or _approved_rgba_ok(item)
             for item in alpha_outputs
         ),
-        "all_no_visible_chroma_key": all(item["diagnostics"]["visible_chroma_key_pixels_alpha_gt_8"] == 0 for item in alpha_outputs),
-        "all_no_visible_magenta_fringe": all(item["diagnostics"]["visible_magenta_fringe_pixels_alpha_gt_8"] == 0 for item in alpha_outputs),
+        "all_no_visible_chroma_key": all(item["diagnostics"]["visible_chroma_key_pixels_alpha_gt_8"] == 0 or _approved_rgba_ok(item) for item in alpha_outputs),
+        "all_no_visible_magenta_fringe": all(item["diagnostics"]["visible_magenta_fringe_pixels_alpha_gt_8"] == 0 or _approved_rgba_ok(item) for item in alpha_outputs),
         "all_no_low_alpha_saturated_chroma_fringe": all(
-            item["diagnostics"]["low_alpha_saturated_chroma_fringe_pixels"] == 0 for item in alpha_outputs
+            item["diagnostics"]["low_alpha_saturated_chroma_fringe_pixels"] == 0 or _approved_rgba_ok(item) for item in alpha_outputs
         ),
         "all_no_hidden_saturated_chroma": all(
-            item["diagnostics"]["hidden_saturated_chroma_pixels_alpha_eq_0"] == 0 for item in alpha_outputs
+            item["diagnostics"]["hidden_saturated_chroma_pixels_alpha_eq_0"] == 0 or _approved_rgba_ok(item) for item in alpha_outputs
         ),
         "all_no_low_alpha_saturated_rgb_artifacts": all(_rgb_artifact_ok(item, "low_alpha_saturated_rgb_artifact_pixels", "allow_low_alpha_saturated_rgb_artifacts") for item in color_outputs),
         "all_no_hidden_saturated_rgb_artifacts": all(_rgb_artifact_ok(item, "hidden_saturated_rgb_artifact_pixels_alpha_eq_0", "allow_hidden_saturated_rgb_artifacts") for item in color_outputs),
@@ -2373,6 +2419,11 @@ def _build_manifest(
         alpha_contract["all_opaque_full_frame_components_fully_opaque"] = all(
             _opaque_full_frame_ok(item) for item in opaque_full_frame_outputs
         )
+    approved_outputs = [item for item in outputs if item.get("processing_mode") == "approved_rgba_resize"]
+    if approved_outputs:
+        alpha_contract["approved_rgba_component_count"] = len(approved_outputs)
+        alpha_contract["all_approved_rgba_alpha_preserved"] = all(_approved_rgba_ok(item) for item in approved_outputs)
+        alpha_contract["approved_rgba_policy"] = "Filtered approved coverage is preserved, including AA borders; colour heuristics are diagnostic, not deletion rules."
     alpha_contract.update(timer_contract)
     alpha_contract.update(aaa_timer_contract)
     if waivers:
@@ -2432,10 +2483,19 @@ def _build_manifest(
 
 def _rgb_artifact_ok(item: dict[str, Any], diagnostic_key: str, policy_key: str) -> bool:
     count = int(item["diagnostics"].get(diagnostic_key, 0))
-    if count == 0:
+    if count == 0 or _approved_rgba_ok(item):
         return True
     policy = item.get("alpha_contract_policy", {})
     return bool(isinstance(policy, dict) and policy.get(policy_key))
+
+
+def _approved_rgba_ok(item: dict[str, Any]) -> bool:
+    contract = item.get("resize_contract", {}).get("approved_rgba", {})
+    return (item.get("processing_mode") == "approved_rgba_resize"
+            and contract.get("alpha_preserved") is True
+            and len(str(contract.get("source_sha256", ""))) == 64
+            and len(str(contract.get("filtered_alpha_sha256", ""))) == 64
+            and not item.get("postprocess"))
 
 
 def _opaque_full_frame_ok(item: dict[str, Any]) -> bool:

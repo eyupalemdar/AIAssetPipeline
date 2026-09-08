@@ -8,6 +8,8 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Engine/Texture2D.h"
+#include "TextureCompiler.h"
+#include "Interfaces/IPluginManager.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
@@ -44,6 +46,11 @@ struct FManifestOutput
 	bool bNeverStream = true;
 	int32 TargetWidth = 0;
 	int32 TargetHeight = 0;
+	int32 ExpectedSourceMipCount = 0;
+	TextureCompressionSettings ParsedCompression = TC_EditorIcon;
+	TextureMipGenSettings ParsedMipGen = TMGS_NoMipmaps;
+	TextureGroup ParsedGroup = TEXTUREGROUP_UI;
+	TextureFilter ParsedFilter = TF_Bilinear;
 };
 
 struct FManifestData
@@ -210,6 +217,16 @@ bool LoadManifest(const FString& ManifestPathValue, FManifestData& OutManifest, 
 	}
 
 	FManifestData Manifest;
+	double ApprovedCount = 0;
+	if ((*AlphaContract)->TryGetNumberField(TEXT("approved_rgba_component_count"), ApprovedCount) && ApprovedCount > 0)
+	{
+		bool bPreserved = false;
+		if (!(*AlphaContract)->TryGetBoolField(TEXT("all_approved_rgba_alpha_preserved"), bPreserved) || !bPreserved)
+		{
+			OutError = TEXT("approved RGBA alpha preservation contract failed");
+			return false;
+		}
+	}
 	Manifest.ManifestPath = ManifestPath;
 	Manifest.Schema = Schema;
 	Root->TryGetStringField(TEXT("version"), Manifest.Version);
@@ -257,6 +274,14 @@ bool LoadManifest(const FString& ManifestPathValue, FManifestData& OutManifest, 
 		}
 		const bool bSingleChannelMask = bMaskType && Output.SourceFormat == TEXT("TSF_G8");
 		ReadIntArray2(*OutputObject, TEXT("target_size"), Output.TargetWidth, Output.TargetHeight);
+		double SourceMipCount = 0;
+		(*OutputObject)->TryGetNumberField(TEXT("source_mip_count"), SourceMipCount);
+		Output.ExpectedSourceMipCount = static_cast<int32>(SourceMipCount);
+		if (SourceMipCount < 0 || SourceMipCount > 32 || SourceMipCount != Output.ExpectedSourceMipCount)
+		{
+			OutError = TEXT("Invalid source_mip_count");
+			return false;
+		}
 
 		if (Output.ComponentId.IsEmpty() || Output.RuntimeFile.IsEmpty() || Output.PackagePath.IsEmpty() || Output.AssetName.IsEmpty())
 		{
@@ -268,17 +293,30 @@ bool LoadManifest(const FString& ManifestPathValue, FManifestData& OutManifest, 
 			OutError = FString::Printf(TEXT("ue_package_path must start with /Game/: %s"), *Output.PackagePath);
 			return false;
 		}
-		if ((Output.Compression != TEXT("UserInterface2D") && Output.Compression != TEXT("Grayscale") && Output.Compression != TEXT("Masks"))
-			|| Output.MipGen != TEXT("NoMipmaps")
-			|| Output.LODGroup != TEXT("UI")
+		if (!UMCTAssetImportBuilder::ParseTextureSettings(Output.Compression, Output.MipGen, Output.LODGroup,
+			Output.ParsedCompression, Output.ParsedMipGen, Output.ParsedGroup, OutError))
+		{
+			return false;
+		}
+		FString FilterName = Output.Filter;
+		if (!FilterName.StartsWith(TEXT("TF_"))) { FilterName = TEXT("TF_") + FilterName; }
+		const int64 FilterValue = StaticEnum<TextureFilter>()->GetValueByNameString(FilterName);
+		if (FilterValue == INDEX_NONE || FilterName.EndsWith(TEXT("_MAX")))
+		{
+			OutError = FString::Printf(TEXT("Unsupported texture filter: %s"), *Output.Filter);
+			return false;
+		}
+		Output.ParsedFilter = static_cast<TextureFilter>(FilterValue);
+		if ((Output.ParsedCompression != TC_EditorIcon && Output.ParsedCompression != TC_Grayscale && Output.ParsedCompression != TC_Masks && Output.ParsedCompression != TC_Default)
+			|| (Output.ParsedMipGen != TMGS_NoMipmaps && Output.ParsedMipGen != TMGS_LeaveExistingMips)
+			|| (Output.ParsedGroup != TEXTUREGROUP_UI && Output.ParsedGroup != TEXTUREGROUP_Project01)
 			|| Output.AddressX != TEXT("Clamp")
-			|| Output.AddressY != TEXT("Clamp")
-			|| Output.Filter != TEXT("Bilinear"))
+			|| Output.AddressY != TEXT("Clamp"))
 		{
 			OutError = FString::Printf(TEXT("unsupported or unsafe ue_texture settings for component: %s"), *Output.ComponentId);
 			return false;
 		}
-		if (bSingleChannelMask && (Output.Compression != TEXT("Grayscale") || Output.SourceFormat != TEXT("TSF_G8") || Output.bSRGB))
+		if (bSingleChannelMask && (Output.ParsedCompression != TC_Grayscale || Output.SourceFormat != TEXT("TSF_G8") || Output.bSRGB))
 		{
 			OutError = FString::Printf(TEXT("single-channel mask ue_texture contract failed for component: %s"), *Output.ComponentId);
 			return false;
@@ -296,19 +334,6 @@ bool LoadManifest(const FString& ManifestPathValue, FManifestData& OutManifest, 
 
 	OutManifest = MoveTemp(Manifest);
 	return true;
-}
-
-TextureCompressionSettings ExpectedCompression(const FString& Value)
-{
-	if (Value == TEXT("Grayscale"))
-	{
-		return TC_Grayscale;
-	}
-	if (Value == TEXT("Masks"))
-	{
-		return TC_Masks;
-	}
-	return TC_EditorIcon;
 }
 
 bool SaveTexture(UTexture2D* Texture)
@@ -359,13 +384,13 @@ TSharedPtr<FJsonObject> TextureInfoJson(const FManifestOutput& Output)
 	const FString SourceFormat = Texture->Source.IsValid() ? UEnum::GetValueAsString(Texture->Source.GetFormat()) : TEXT("invalid");
 	const bool bSourceFormatMatches = Output.SourceFormat == TEXT("auto") || SourceFormat.EndsWith(Output.SourceFormat);
 	const bool bSettingsMatch =
-		Texture->CompressionSettings == ExpectedCompression(Output.Compression)
+		Texture->CompressionSettings == Output.ParsedCompression
 		&& Texture->SRGB == Output.bSRGB
-		&& Texture->MipGenSettings == TMGS_NoMipmaps
-		&& Texture->LODGroup == TEXTUREGROUP_UI
+		&& Texture->MipGenSettings == Output.ParsedMipGen
+		&& Texture->LODGroup == Output.ParsedGroup
 		&& Texture->AddressX == TA_Clamp
 		&& Texture->AddressY == TA_Clamp
-		&& Texture->Filter == TF_Bilinear
+		&& Texture->Filter == Output.ParsedFilter
 		&& Texture->NeverStream == Output.bNeverStream
 		&& bSourceFormatMatches;
 	Item->SetStringField(TEXT("source_format"), SourceFormat);
@@ -376,6 +401,23 @@ TSharedPtr<FJsonObject> TextureInfoJson(const FManifestOutput& Output)
 	Item->SetStringField(TEXT("filter"), UEnum::GetValueAsString(Texture->Filter));
 	Item->SetBoolField(TEXT("never_stream"), Texture->NeverStream);
 	Item->SetBoolField(TEXT("settings_match"), bSettingsMatch);
+	Item->SetNumberField(TEXT("source_mip_count"), Texture->Source.GetNumMips());
+	Item->SetNumberField(TEXT("runtime_mip_count"), Texture->GetNumMips());
+	Item->SetBoolField(TEXT("source_mips_match"), Output.ExpectedSourceMipCount == 0 || Texture->Source.GetNumMips() == Output.ExpectedSourceMipCount);
+	TArray<TSharedPtr<FJsonValue>> SourceMips;
+	for (int32 Index = 0; Index < Texture->Source.GetNumMips(); ++Index)
+	{
+		TSharedPtr<FJsonObject> Mip = MakeShared<FJsonObject>();
+		Mip->SetNumberField(TEXT("index"), Index);
+		Mip->SetNumberField(TEXT("width"), FMath::Max(1, Texture->Source.GetSizeX() >> Index));
+		Mip->SetNumberField(TEXT("height"), FMath::Max(1, Texture->Source.GetSizeY() >> Index));
+		SourceMips.Add(MakeShared<FJsonValueObject>(Mip));
+	}
+	Item->SetArrayField(TEXT("source_mips"), SourceMips);
+	Item->SetStringField(TEXT("requested_mip_gen"), Output.MipGen);
+	Item->SetStringField(TEXT("requested_lod_group"), Output.LODGroup);
+	Item->SetStringField(TEXT("requested_filter"), Output.Filter);
+	Item->SetStringField(TEXT("pixel_format"), GetPixelFormatString(Texture->GetPixelFormat()));
 	return Item;
 }
 
@@ -385,6 +427,7 @@ TSharedPtr<FJsonObject> BuildVerifyResult(const FManifestData& Manifest)
 	bool bAllExist = true;
 	bool bAllSizesMatch = true;
 	bool bAllSettingsMatch = true;
+	bool bAllSourceMipsMatch = true;
 
 	for (const FManifestOutput& Output : Manifest.Outputs)
 	{
@@ -392,6 +435,7 @@ TSharedPtr<FJsonObject> BuildVerifyResult(const FManifestData& Manifest)
 		bAllExist = bAllExist && Item->GetBoolField(TEXT("exists"));
 		bAllSizesMatch = bAllSizesMatch && (!Item->HasField(TEXT("size_matches")) || Item->GetBoolField(TEXT("size_matches")));
 		bAllSettingsMatch = bAllSettingsMatch && (!Item->HasField(TEXT("settings_match")) || Item->GetBoolField(TEXT("settings_match")));
+		bAllSourceMipsMatch = bAllSourceMipsMatch && (!Item->HasField(TEXT("source_mips_match")) || Item->GetBoolField(TEXT("source_mips_match")));
 		Assets.Add(MakeShared<FJsonValueObject>(Item));
 	}
 
@@ -403,6 +447,7 @@ TSharedPtr<FJsonObject> BuildVerifyResult(const FManifestData& Manifest)
 	Data->SetBoolField(TEXT("all_assets_exist"), bAllExist);
 	Data->SetBoolField(TEXT("all_sizes_match"), bAllSizesMatch);
 	Data->SetBoolField(TEXT("all_settings_match"), bAllSettingsMatch);
+	Data->SetBoolField(TEXT("all_source_mips_match"), bAllSourceMipsMatch);
 	Data->SetArrayField(TEXT("assets"), Assets);
 	return Data;
 }
@@ -414,6 +459,11 @@ FString ImportOutput(const FManifestOutput& Output, const bool bForce, TSharedPt
 	{
 		OutResult = TextureInfoJson(Output);
 		OutResult->SetStringField(TEXT("status"), TEXT("skipped-existing"));
+		if (!OutResult->GetBoolField(TEXT("exists")) || !OutResult->GetBoolField(TEXT("settings_match"))
+			|| !OutResult->GetBoolField(TEXT("size_matches")) || !OutResult->GetBoolField(TEXT("source_mips_match")))
+		{
+			return FString::Printf(TEXT("Existing asset does not match the manifest: %s"), *Output.AssetPath);
+		}
 		return FString();
 	}
 
@@ -438,16 +488,22 @@ FString ImportOutput(const FManifestOutput& Output, const bool bForce, TSharedPt
 	{
 		return FString::Printf(TEXT("Imported texture could not be reloaded: %s"), *Output.AssetPath);
 	}
-	Texture->CompressionSettings = ExpectedCompression(Output.Compression);
+	if (Texture->SRGB != Output.bSRGB)
+	{
+		return TEXT("Requested sRGB conflicts with the preserved source gamma; use a new versioned texture asset.");
+	}
+	Texture->CompressionSettings = Output.ParsedCompression;
 	Texture->SRGB = Output.bSRGB;
-	Texture->MipGenSettings = TMGS_NoMipmaps;
-	Texture->LODGroup = TEXTUREGROUP_UI;
+	Texture->MipGenSettings = Output.ParsedMipGen;
+	Texture->LODGroup = Output.ParsedGroup;
 	Texture->AddressX = TA_Clamp;
 	Texture->AddressY = TA_Clamp;
-	Texture->Filter = TF_Bilinear;
+	Texture->Filter = Output.ParsedFilter;
 	Texture->NeverStream = Output.bNeverStream;
 	Texture->PostEditChange();
 	Texture->UpdateResource();
+	UTexture* PendingTextures[] = { Texture };
+	FTextureCompilingManager::Get().FinishCompilation(PendingTextures);
 	Texture->MarkPackageDirty();
 	if (!SaveTexture(Texture))
 	{
@@ -455,6 +511,11 @@ FString ImportOutput(const FManifestOutput& Output, const bool bForce, TSharedPt
 	}
 
 	OutResult = TextureInfoJson(Output);
+	if (!OutResult->GetBoolField(TEXT("settings_match")) || !OutResult->GetBoolField(TEXT("size_matches"))
+		|| !OutResult->GetBoolField(TEXT("source_mips_match")))
+	{
+		return FString::Printf(TEXT("Imported asset failed manifest readback: %s"), *Output.AssetPath);
+	}
 	OutResult->SetStringField(TEXT("component_id"), Output.ComponentId);
 	OutResult->SetStringField(TEXT("status"), TEXT("imported"));
 	OutResult->SetStringField(TEXT("texture_type"), Output.TextureType);
@@ -489,7 +550,9 @@ FString HandleStatus(TSharedPtr<FJsonObject> Params)
 {
 	TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
 	Data->SetStringField(TEXT("plugin"), TEXT("AIAssetPipeline"));
-	Data->SetStringField(TEXT("version"), TEXT("0.1.8"));
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("AIAssetPipeline"));
+	Data->SetStringField(TEXT("version"), Plugin.IsValid() ? Plugin->GetDescriptor().VersionName : TEXT("unknown"));
+	Data->SetBoolField(TEXT("authored_mips_supported"), true);
 	Data->SetStringField(TEXT("plugin_dir"), FAIAssetPipelineModule::GetPluginDir());
 	Data->SetStringField(TEXT("python_dir"), FAIAssetPipelineModule::GetPythonDir());
 	Data->SetStringField(TEXT("schemas_dir"), FAIAssetPipelineModule::GetSchemasDir());

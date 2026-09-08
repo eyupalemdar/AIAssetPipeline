@@ -18,7 +18,8 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "path", "prompt_files", "provenance"],
+        "required": ["id", "path", "provenance"],
+        "allOf": [{"if": {"properties": {"provenance": {"properties": {"kind": {"const": "existing_approved"}}, "required": ["kind"]}}}, "then": {"required": ["authority_files"]}, "else": {"required": ["prompt_files"]}}],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "path": { "type": "string", "minLength": 1 },
@@ -27,10 +28,14 @@
             "minItems": 1,
             "items": { "type": "string", "minLength": 1 }
           },
+          "authority_files": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
           "provenance": {
             "type": "object",
-            "required": ["provider", "model", "generation_id"],
+            "required": ["provider"],
+            "allOf": [{"if": {"properties": {"kind": {"const": "existing_approved"}}, "required": ["kind"]}, "then": {"required": ["source_sha256"]}, "else": {"required": ["model", "generation_id"]}}],
             "properties": {
+              "kind": {"type": "string"},
+              "source_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
               "provider": { "type": "string", "minLength": 1 },
               "model": { "type": "string", "minLength": 1 },
               "generation_id": { "type": "string", "minLength": 1 },
@@ -95,10 +100,10 @@
         "draw_rect": {
           "type": "array",
           "prefixItems": [
-            { "type": "integer" },
-            { "type": "integer" },
-            { "type": "integer", "minimum": 1 },
-            { "type": "integer", "minimum": 1 }
+            { "type": "number" },
+            { "type": "number" },
+            { "type": "number", "minimum": 1 },
+            { "type": "number", "minimum": 1 }
           ],
           "minItems": 4,
           "maxItems": 4
@@ -118,6 +123,7 @@
             "luma_mask_resize",
             "nine_slice_prerender",
             "approved_source_target_size",
+            "approved_rgba_resize",
             "reference_color_pill_resize",
             "edge_particle_extract_resize",
             "nameplate_timer_aaa_fill_resize",
@@ -135,6 +141,8 @@
           "default": "resize_premultiplied"
         },
         "approved_source_target_size": { "$ref": "#/$defs/approvedSourceTargetSize" },
+        "approved_rgba_resize": { "type": "object", "properties": { "sampling_box": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }, "rgb_dilation_iterations": { "type": "integer", "minimum": 0, "maximum": 64, "default": 8 }, "atlas_grid": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2} }, "additionalProperties": false },
+        "authored_mips": {"type": "object", "required": ["count"], "properties": {"count": {"type": "integer", "minimum": 2, "maximum": 16}}, "additionalProperties": false},
         "soft_glow_resize": {
           "type": "object",
           "properties": {
@@ -553,14 +561,14 @@
     "ueTexture": {
       "type": "object",
       "properties": {
-        "compression": { "enum": ["UserInterface2D", "Grayscale", "Masks"] },
-        "source_format": { "enum": ["auto", "TSF_G8"] },
+        "compression": { "enum": ["UserInterface2D", "Grayscale", "Masks", "Default"] },
+        "source_format": { "enum": ["auto", "TSF_G8", "TSF_BGRA8"] },
         "srgb": { "type": "boolean" },
-        "mip_gen": { "const": "NoMipmaps" },
-        "lod_group": { "const": "UI" },
+        "mip_gen": { "enum": ["NoMipmaps", "LeaveExistingMips"] },
+        "lod_group": { "enum": ["UI", "Project01"] },
         "address_x": { "const": "Clamp" },
         "address_y": { "const": "Clamp" },
-        "filter": { "const": "Bilinear" },
+        "filter": { "enum": ["Bilinear", "Trilinear", "Nearest", "Default"] },
         "never_stream": { "const": true }
       },
       "additionalProperties": true

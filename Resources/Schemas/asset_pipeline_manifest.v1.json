@@ -34,6 +34,10 @@
         "properties": {
           "component_id": { "type": "string", "minLength": 1 },
           "runtime_file": { "type": "string", "minLength": 1 },
+          "pipeline_png": {"type": "string"},
+          "source_mip_count": {"type": "integer", "minimum": 1, "maximum": 16},
+          "source_mips": {"type": "array", "items": {"type": "object", "required": ["index", "size", "png", "sha256"], "additionalProperties": true}},
+          "dds_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
           "runtime_asset_name": { "type": "string", "minLength": 1 },
           "ue_package_path": { "type": "string", "pattern": "^/Game/" },
           "ue_asset_name": { "type": "string", "minLength": 1 },
@@ -56,7 +60,8 @@
               "preserve_aspect_ratio": { "type": "boolean" },
               "non_uniform_stretch": { "type": ["boolean", "null"] },
               "strict_hsv_post_cleanup": { "type": ["boolean", "null"] },
-              "fit_visible_alpha_to_safe_area": { "type": ["boolean", "null"] }
+              "fit_visible_alpha_to_safe_area": { "type": ["boolean", "null"] },
+              "approved_rgba": { "type": "object", "additionalProperties": true }
             },
             "additionalProperties": true
           },

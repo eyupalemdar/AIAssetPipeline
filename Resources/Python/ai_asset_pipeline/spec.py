@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import math
 from pathlib import Path
 from typing import Any
 
@@ -207,17 +209,21 @@ def validate_spec(spec: dict[str, Any], root: Path) -> list[str]:
         _require(source_id not in source_ids, f"duplicate source_art id: {source_id}")
         source_ids.add(source_id)
         _require_path(root, f"source_art {source_id}", str(item.get("path", "")))
-        prompts = item.get("prompt_files")
-        _require(isinstance(prompts, list) and prompts, f"source_art {source_id} requires prompt_files")
-        for prompt in prompts:
-            _require_path(root, f"source_art {source_id} prompt", str(prompt))
-
         provenance = item.get("provenance")
+        existing = isinstance(provenance, dict) and provenance.get("kind") == "existing_approved"
+        files = item.get("authority_files" if existing else "prompt_files")
+        _require(isinstance(files, list) and files, f"source_art {source_id} requires {'authority_files' if existing else 'prompt_files'}")
+        for file in files:
+            _require_path(root, f"source_art {source_id} authority/prompt", str(file))
+        if existing:
+            expected = str(provenance.get("source_sha256", ""))
+            actual = hashlib.sha256(resolve_path(root, str(item["path"])).read_bytes()).hexdigest()
+            _require(len(expected) == 64 and expected.lower() == actual, f"source_art {source_id} approved source hash mismatch")
         if legacy and provenance is None:
             warnings.append(f"source_art {source_id} has no provenance; legacy compatibility mode")
         else:
             _require(isinstance(provenance, dict), f"source_art {source_id} requires provenance")
-            for field in ("provider", "model", "generation_id"):
+            for field in (("provider",) if existing else ("provider", "model", "generation_id")):
                 _require(bool(str(provenance.get(field, ""))), f"source_art {source_id} provenance missing {field}")
 
     canonical_shapes = _validate_canonical_shapes(spec.get("canonical_shapes", []))
@@ -292,6 +298,31 @@ def _validate_component(
         _require(isinstance(component.get("source_component_ids"), list), f"{component_id} missing source_component_ids")
     else:
         processing_mode = str(component.get("processing_mode", "resize_premultiplied"))
+        if processing_mode == "approved_rgba_resize":
+            _require(component.get("texture_type", "color") in {"color", "icon", "glow"},
+                     f"{component_id}: approved_rgba_resize is for colour RGBA, not packed/linear masks")
+            _require(component.get("selector", {}).get("type") == "full_image_raw",
+                     f"{component_id}: approved RGBA requires full_image_raw; use sampling_box for lossless source selection")
+            cfg = component.get("approved_rgba_resize", {})
+            _require(isinstance(cfg, dict), f"{component_id}.approved_rgba_resize must be an object")
+            _require(not component.get("postprocess"), f"{component_id}: approved RGBA cannot be postprocessed")
+            _require(set(cfg) <= {"sampling_box", "rgb_dilation_iterations", "atlas_grid"}, f"{component_id}: unsupported approved_rgba_resize option")
+            if "atlas_grid" in cfg:
+                grid = cfg["atlas_grid"]
+                _require(isinstance(grid, (list, tuple)) and len(grid) == 2 and all(type(v) is int and v > 0 for v in grid), f"{component_id}: invalid atlas_grid")
+                _require("sampling_box" not in cfg and not component.get("authored_mips"), f"{component_id}: atlas requires full canvas and NoMipmaps")
+        if "authored_mips" in component:
+            mips = component["authored_mips"]
+            _require(processing_mode == "approved_rgba_resize" and isinstance(mips, dict) and set(mips) == {"count"}, f"{component_id}: authored_mips requires approved_rgba_resize and count")
+            _require(type(mips["count"]) is int and 2 <= mips["count"] <= 16, f"{component_id}: authored mip count must be 2..16")
+        if processing_mode == "approved_rgba_resize":
+            if "sampling_box" in cfg:
+                box = cfg["sampling_box"]
+                _require(isinstance(box, (list, tuple)) and len(box) == 4, f"{component_id}: sampling_box needs four coordinates")
+                _require(all(isinstance(x, (int, float)) and math.isfinite(x) for x in box)
+                         and box[2] > box[0] and box[3] > box[1], f"{component_id}: invalid sampling_box")
+            count = cfg.get("rgb_dilation_iterations", 8)
+            _require(isinstance(count, int) and 0 <= count <= 64, f"{component_id}: invalid RGB dilation count")
         shape_id = str(component.get("canonical_shape_id", ""))
         if shape_id:
             _require(shape_id in (canonical_shapes or {}), f"{component_id} references unknown canonical_shape_id: {shape_id}")
@@ -365,6 +396,17 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     )
     for field, label in required_true_fields:
         _require(contract.get(field) is True, f"alpha contract failed: {label}")
+    approved = [x for x in manifest["outputs"] if x.get("processing_mode") == "approved_rgba_resize"]
+    if approved:
+        _require(contract.get("approved_rgba_component_count") == len(approved)
+                 and contract.get("all_approved_rgba_alpha_preserved") is True,
+                 "approved RGBA alpha preservation contract failed")
+        for output in approved:
+            preserved = output.get("resize_contract", {}).get("approved_rgba", {})
+            _require(preserved.get("alpha_preserved") is True and not output.get("postprocess")
+                     and len(str(preserved.get("source_sha256", ""))) == 64
+                     and len(str(preserved.get("filtered_alpha_sha256", ""))) == 64,
+                     "approved RGBA output missing preservation/provenance evidence")
     optional_true_fields = (
         ("all_no_timer_dark_right_edge_band", "timer dark right-edge band"),
         ("all_timer_edge_boundary_within_tolerance", "timer edge boundary alignment"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import struct
 from typing import Any
 
 import numpy as np
@@ -759,6 +760,108 @@ def resize_linear_light_premultiplied(
     out = dilate_transparent_rgb(out, iterations=64)
     out = neutralize_hidden_artifacts(out)
     return Image.fromarray(out, "RGBA")
+
+
+def resize_approved_rgba(
+    image: Image.Image,
+    size: tuple[int, int],
+    *,
+    sampling_box: tuple[float, float, float, float] | None = None,
+    rgb_dilation_iterations: int = 8,
+    atlas_grid: tuple[int, int] | None = None,
+) -> Image.Image:
+    """Resample already-approved colour art without re-keying or deleting AA.
+
+    sampling_box is in source-pixel coordinates and may include transparent
+    padding outside the source. Reuse the SAME box for every authored mip.
+    RGB is filtered in linear premultiplied float planes, then stored straight.
+    Colour bleed changes only alpha-zero RGB and never filtered coverage.
+    Legacy resize/cleanup functions deliberately keep their previous behaviour.
+    """
+    width, height = map(int, size)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid target size: {size}")
+    if atlas_grid is not None:
+        if (len(atlas_grid) != 2 or any(type(v) is not int or v <= 0 for v in atlas_grid)
+                or sampling_box is not None):
+            raise ValueError("atlas_grid requires two positive integers and the full source canvas")
+        columns, rows = atlas_grid
+        if image.width % columns or image.height % rows or width % columns or height % rows:
+            raise ValueError("Atlas source and target dimensions must divide evenly into the grid")
+        sw, sh = image.width // columns, image.height // rows
+        tw, th = width // columns, height // rows
+        result = Image.new("RGBA", (width, height))
+        for y in range(rows):
+            for x in range(columns):
+                cell = image.crop((x * sw, y * sh, (x + 1) * sw, (y + 1) * sh))
+                reduced = resize_approved_rgba(cell, (tw, th), rgb_dilation_iterations=rgb_dilation_iterations)
+                result.paste(reduced, (x * tw, y * th))
+        return result
+    rgba = np.asarray(image.convert("RGBA"), dtype=np.float32) / 255.0
+    box = tuple(float(x) for x in (sampling_box or (0, 0, image.width, image.height)))
+    if len(box) != 4 or not np.all(np.isfinite(box)) or box[2] <= box[0] or box[3] <= box[1]:
+        raise ValueError(f"Invalid sampling_box: {box}")
+    padding = (max(0, int(np.ceil(-box[0]))), max(0, int(np.ceil(-box[1]))),
+               max(0, int(np.ceil(box[2] - image.width))), max(0, int(np.ceil(box[3] - image.height))))
+    # Bound malformed manifests before allocating a potentially huge canvas.
+    if max(padding) > max(image.size) * 2:
+        raise ValueError("sampling_box padding exceeds two source dimensions")
+    left, top, right, bottom = padding
+    if any(padding):
+        rgba = np.pad(rgba, ((top, bottom), (left, right), (0, 0)))
+    box = (box[0] + left, box[1] + top, box[2] + left, box[3] + top)
+    alpha = rgba[:, :, 3]
+    premul = _srgb_to_linear(rgba[:, :, :3]) * alpha[:, :, None]
+
+    def resample(plane: np.ndarray) -> np.ndarray:
+        return np.asarray(Image.fromarray(plane.astype(np.float32)).resize(
+            (width, height), Image.Resampling.LANCZOS, box=box), dtype=np.float32)
+
+    filtered_alpha = np.clip(resample(alpha), 0.0, 1.0)
+    filtered_rgb = np.stack([resample(premul[:, :, c]) for c in range(3)], axis=2)
+    straight = np.zeros_like(filtered_rgb)
+    valid = filtered_alpha > 1.0 / 65535.0
+    straight[valid] = np.clip(filtered_rgb[valid] / filtered_alpha[valid, None], 0.0, 1.0)
+    result = np.empty((height, width, 4), dtype=np.uint8)
+    result[:, :, :3] = np.rint(_linear_to_srgb(straight) * 255.0).astype(np.uint8)
+    result[:, :, 3] = np.rint(filtered_alpha * 255.0).astype(np.uint8)
+    if rgb_dilation_iterations:
+        if not 0 <= rgb_dilation_iterations <= 64:
+            raise ValueError("rgb_dilation_iterations must be in [0,64]")
+        result = dilate_transparent_rgb(result, iterations=rgb_dilation_iterations)
+    return Image.fromarray(result, "RGBA")
+
+
+def generate_approved_mips(image: Image.Image, size: tuple[int, int], count: int, **config: Any) -> list[Image.Image]:
+    """Generate each level from the original pixels and one fixed sampling box."""
+    if type(count) is not int or not 2 <= count <= 16 or config.get("atlas_grid") is not None:
+        raise ValueError("Authored mips require 2..16 levels of standalone colour art; atlases stay NoMipmaps")
+    levels = []
+    current_size = tuple(size)
+    for index in range(count):
+        if index and current_size == levels[-1].size:
+            raise ValueError("Authored mip count extends beyond 1x1")
+        levels.append(resize_approved_rgba(image, current_size, **config))
+        current_size = tuple(max(1, n // 2) for n in current_size)
+    return levels
+
+
+def write_bgra8_dds(path: Path, levels: list[Image.Image]) -> None:
+    """Write an uncompressed straight-alpha DDS with preserved authored mip bytes."""
+    if not 2 <= len(levels) <= 16:
+        raise ValueError("DDS requires 2..16 authored levels")
+    for prior, current in zip(levels, levels[1:]):
+        if current.size != tuple(max(1, n // 2) for n in prior.size) or current.size == prior.size:
+            raise ValueError("Invalid DDS mip dimensions")
+    width, height = levels[0].size
+    header = [124, 0x2100F, height, width, width * 4, 0, len(levels), *([0] * 11),
+              32, 0x41, 0, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000,
+              0x401008, 0, 0, 0, 0]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as stream:
+        stream.write(b"DDS " + struct.pack("<31I", *header))
+        for level in levels:
+            stream.write(np.asarray(level.convert("RGBA"), dtype=np.uint8)[:, :, [2, 1, 0, 3]].tobytes())
 
 
 def _rgb_triplet(value: object, default: tuple[int, int, int]) -> np.ndarray:
