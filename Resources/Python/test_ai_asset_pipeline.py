@@ -440,6 +440,14 @@ class AIAssetPipelineTests(unittest.TestCase):
                 "quality_gates": {"require_single_channel": True, "require_outer_border_zero": True},
                 "ue_texture": mask_ue,
             })
+            components.append({
+                "component_id": "shadow_rgba", "draw_rect": [0, 0, 320, 432], "target_size": [320, 432],
+                "asset_suffix": "ShadowRgba", "runtime_asset_name": "T_ShadowRgba", "ue_package_path": "/Game/UI/Test",
+                "ue_asset_name": "T_ShadowRgba", "texture_type": "glow", "processing_mode": "canonical_shape_shadow_rgba",
+                "canonical_shape_id": "body", "canonical_shape_shadow_rgba": {"blur_radius_px": 4.5, "clear_outer_px": 1},
+                "quality_gates": {"require_outer_border_zero": True},
+                "ue_texture": color_ue,
+            })
             spec = {
                 "$schema": "ai-asset-pipeline-spec-v1", "run_id": "canonical-test",
                 "runtime_output_dir": "runtime", "review_output_dir": "review",
@@ -470,6 +478,17 @@ class AIAssetPipelineTests(unittest.TestCase):
             self.assertEqual(shadow_plan["params"]["compression"], "Grayscale")
             self.assertEqual(shadow_plan["params"]["source_format"], "TSF_G8")
             self.assertFalse(shadow_plan["params"]["srgb"])
+            shadow_rgba = next(item for item in manifest["outputs"] if item["component_id"] == "shadow_rgba")
+            with Image.open(root / shadow_rgba["runtime_file"]) as image:
+                self.assertEqual(image.mode, "RGBA")
+                rgba = np.asarray(image)
+                self.assertEqual(int(rgba[0, :, 3].max()), 0)
+                self.assertEqual(int(rgba[:, :, :3].min()), 255)
+                self.assertGreater(int(rgba[:, :, 3].max()), 0)
+            shadow_rgba_plan = next(item for item in plan["imports"] if item["component_id"] == "shadow_rgba")
+            self.assertEqual(shadow_rgba_plan["params"]["compression"], "UserInterface2D")
+            self.assertEqual(shadow_rgba_plan["params"]["source_format"], "auto")
+            self.assertTrue(shadow_rgba_plan["params"]["srgb"])
 
     @unittest.skipUnless(V10_SPEC.is_file(), "optional legacy V10 spec fixture is not installed")
     def test_legacy_v10_spec_validates_with_warning(self) -> None:

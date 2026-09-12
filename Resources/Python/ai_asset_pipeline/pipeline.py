@@ -190,6 +190,25 @@ def _canonical_shape_shadow_mask(
     return Image.fromarray(arr, "L")
 
 
+def _canonical_shape_shadow_rgba(
+    target_size: tuple[int, int],
+    shape: dict[str, Any],
+    config: dict[str, Any],
+) -> Image.Image:
+    """Build a straight-alpha white shadow sprite suitable for Slate tinting.
+
+    The single-channel mask remains the preferred data-texture representation.
+    Slate's stock texture shader, however, only treats TC_Alpha (not TC_Grayscale)
+    as opacity.  This RGBA form preserves the same canonical alpha while allowing
+    direct UMG/Slate use without a one-off material asset.
+    """
+    mask = _canonical_shape_shadow_mask(target_size, shape, config)
+    alpha = np.asarray(mask, dtype=np.uint8)
+    rgba = np.full((target_size[1], target_size[0], 4), 255, dtype=np.uint8)
+    rgba[:, :, 3] = alpha
+    return Image.fromarray(rgba, "RGBA")
+
+
 def package_spec(
     spec_path: Path,
     validate_only: bool = False,
@@ -258,14 +277,16 @@ def _write_component(
     canonical_shape_id = str(component.get("canonical_shape_id", ""))
     canonical_shape = canonical_shapes.get(canonical_shape_id) if canonical_shape_id else None
 
-    if processing_mode == "canonical_shape_shadow_mask":
+    if processing_mode in {"canonical_shape_shadow_mask", "canonical_shape_shadow_rgba"}:
         if canonical_shape is None:
             raise ValueError(f"{component['component_id']} requires a valid canonical_shape_id")
-        runtime = _canonical_shape_shadow_mask(
-            target_size,
-            canonical_shape,
+        shadow_config = component.get(
+            "canonical_shape_shadow_rgba" if processing_mode == "canonical_shape_shadow_rgba"
+            else "canonical_shape_shadow_mask",
             component.get("canonical_shape_shadow_mask", {}),
         )
+        runtime = (_canonical_shape_shadow_rgba if processing_mode == "canonical_shape_shadow_rgba"
+                   else _canonical_shape_shadow_mask)(target_size, canonical_shape, shadow_config)
         runtime_file = runtime_dir / f"{component['runtime_asset_name']}.png"
         runtime.save(runtime_file)
         source_info = {
@@ -273,7 +294,7 @@ def _write_component(
             "prompt_files": [],
             "provenance": {
                 "provider": "local-deterministic-processing",
-                "model": "ai_asset_pipeline_canonical_shape_shadow_mask",
+                "model": f"ai_asset_pipeline_{processing_mode}",
                 "generation_id": f"{component.get('component_id', '')}:{canonical_shape_id}",
                 "notes": "Generated from the declared canonical shape; no model-generated shadow pixels are used.",
             },
@@ -287,7 +308,7 @@ def _write_component(
             target_size,
             target_size,
             _component_diagnostics(runtime, spec, component),
-            {"selector": "canonical_shape_shadow_mask", "canonical_shape_id": canonical_shape_id},
+            {"selector": processing_mode, "canonical_shape_id": canonical_shape_id},
         )
 
     if processing_mode == "vector_sdf_icon":
@@ -2179,6 +2200,9 @@ def _strategy_metadata(
     elif processing_mode == "canonical_shape_shadow_mask":
         recommended = "canonical_shape_single_channel_preblurred_mask"
         final_safe = texture_type == "mask"
+    elif processing_mode == "canonical_shape_shadow_rgba":
+        recommended = "canonical_shape_straight_alpha_preblurred_shadow"
+        final_safe = texture_type in {"color", "glow"}
     elif processing_mode == "luma_mask_resize":
         recommended = "color_locked_luma_mask_resize"
         final_safe = texture_type == "mask"

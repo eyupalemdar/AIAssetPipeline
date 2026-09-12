@@ -137,6 +137,7 @@
             "copy_exact"
             ,"canonical_shape_color"
             ,"canonical_shape_shadow_mask"
+            ,"canonical_shape_shadow_rgba"
           ],
           "default": "resize_premultiplied"
         },
@@ -454,6 +455,14 @@
           "additionalProperties": true
         },
         "canonical_shape_shadow_mask": {
+          "type": "object",
+          "properties": {
+            "blur_radius_px": { "type": "number", "minimum": 0 },
+            "clear_outer_px": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": true
+        },
+        "canonical_shape_shadow_rgba": {
           "type": "object",
           "properties": {
             "blur_radius_px": { "type": "number", "minimum": 0 },

@@ -370,10 +370,21 @@ TSharedPtr<FJsonObject> TextureInfoJson(const FManifestOutput& Output)
 		return Item;
 	}
 
-	Item->SetNumberField(TEXT("width"), Texture->GetSizeX());
-	Item->SetNumberField(TEXT("height"), Texture->GetSizeY());
-	Item->SetBoolField(TEXT("size_matches"), (Output.TargetWidth <= 0 || Output.TargetWidth == Texture->GetSizeX())
-		&& (Output.TargetHeight <= 0 || Output.TargetHeight == Texture->GetSizeY()));
+	// Manifest dimensions describe the imported source contract. Newly imported
+	// textures can legitimately have no editor platform resource yet (notably
+	// single-channel G8 masks), which makes GetSizeX/Y return zero even though
+	// the source mip is complete and will be built for the target during cook.
+	// Keep runtime/platform dimensions as telemetry, but fail closed against the
+	// durable source dimensions.
+	const int32 SourceWidth = Texture->Source.IsValid() ? Texture->Source.GetSizeX() : Texture->GetSizeX();
+	const int32 SourceHeight = Texture->Source.IsValid() ? Texture->Source.GetSizeY() : Texture->GetSizeY();
+	Item->SetNumberField(TEXT("width"), SourceWidth);
+	Item->SetNumberField(TEXT("height"), SourceHeight);
+	Item->SetNumberField(TEXT("runtime_width"), Texture->GetSizeX());
+	Item->SetNumberField(TEXT("runtime_height"), Texture->GetSizeY());
+	Item->SetBoolField(TEXT("runtime_resource_ready"), Texture->GetSizeX() > 0 && Texture->GetSizeY() > 0);
+	Item->SetBoolField(TEXT("size_matches"), (Output.TargetWidth <= 0 || Output.TargetWidth == SourceWidth)
+		&& (Output.TargetHeight <= 0 || Output.TargetHeight == SourceHeight));
 	Item->SetBoolField(TEXT("srgb"), Texture->SRGB);
 	Item->SetNumberField(TEXT("compression_settings"), static_cast<int32>(Texture->CompressionSettings));
 	Item->SetNumberField(TEXT("mip_gen_settings"), static_cast<int32>(Texture->MipGenSettings));
@@ -492,6 +503,7 @@ FString ImportOutput(const FManifestOutput& Output, const bool bForce, TSharedPt
 	{
 		return TEXT("Requested sRGB conflicts with the preserved source gamma; use a new versioned texture asset.");
 	}
+	Texture->PreEditChange(nullptr);
 	Texture->CompressionSettings = Output.ParsedCompression;
 	Texture->SRGB = Output.bSRGB;
 	Texture->MipGenSettings = Output.ParsedMipGen;
@@ -501,9 +513,10 @@ FString ImportOutput(const FManifestOutput& Output, const bool bForce, TSharedPt
 	Texture->Filter = Output.ParsedFilter;
 	Texture->NeverStream = Output.bNeverStream;
 	Texture->PostEditChange();
-	Texture->UpdateResource();
 	UTexture* PendingTextures[] = { Texture };
 	FTextureCompilingManager::Get().FinishCompilation(PendingTextures);
+	Texture->BlockOnAnyAsyncBuild();
+	Texture->UpdateResource();
 	Texture->MarkPackageDirty();
 	if (!SaveTexture(Texture))
 	{

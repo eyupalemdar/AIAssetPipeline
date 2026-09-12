@@ -329,7 +329,7 @@ def _validate_component(
             if "target_size" in component:
                 canvas = [int(value) for value in (canonical_shapes or {})[shape_id]["canvas_size"]]
                 _require([int(value) for value in component["target_size"]] == canvas, f"{component_id} target_size must match canonical shape canvas_size")
-        if processing_mode in {"canonical_shape_color", "canonical_shape_shadow_mask"}:
+        if processing_mode in {"canonical_shape_color", "canonical_shape_shadow_mask", "canonical_shape_shadow_rgba"}:
             _require(bool(shape_id), f"{component_id} requires canonical_shape_id")
         quality_gates = component.get("quality_gates", {})
         _require(isinstance(quality_gates, dict), f"{component_id} quality_gates must be an object")
@@ -354,6 +354,10 @@ def _validate_component(
         _require(isinstance(ue_texture, dict), f"{component_id} ue_texture must be an object")
         if processing_mode == "canonical_shape_shadow_mask":
             _require(str(component.get("texture_type", "")) == "mask", f"{component_id} canonical shadow must use texture_type=mask")
+            return
+        if processing_mode == "canonical_shape_shadow_rgba":
+            _require(str(component.get("texture_type", "")) in {"color", "glow"},
+                     f"{component_id} canonical RGBA shadow must use texture_type=color or glow")
             return
         if processing_mode == "vector_sdf_icon":
             vector_icon = component.get("vector_icon")
