@@ -310,11 +310,21 @@ def _validate_component(
             if "atlas_grid" in cfg:
                 grid = cfg["atlas_grid"]
                 _require(isinstance(grid, (list, tuple)) and len(grid) == 2 and all(type(v) is int and v > 0 for v in grid), f"{component_id}: invalid atlas_grid")
-                _require("sampling_box" not in cfg and not component.get("authored_mips"), f"{component_id}: atlas requires full canvas and NoMipmaps")
+                _require("sampling_box" not in cfg, f"{component_id}: atlas requires the full source canvas")
         if "authored_mips" in component:
             mips = component["authored_mips"]
-            _require(processing_mode == "approved_rgba_resize" and isinstance(mips, dict) and set(mips) == {"count"}, f"{component_id}: authored_mips requires approved_rgba_resize and count")
+            _require(processing_mode == "approved_rgba_resize" and isinstance(mips, dict) and "count" in mips and set(mips) <= {"count", "max_sampled_lod"}, f"{component_id}: authored_mips requires approved_rgba_resize and count")
             _require(type(mips["count"]) is int and 2 <= mips["count"] <= 16, f"{component_id}: authored mip count must be 2..16")
+            if cfg.get("atlas_grid"):
+                _require(type(mips.get("max_sampled_lod")) is int and mips["max_sampled_lod"] == mips["count"] - 1,
+                         f"{component_id}: atlas mips require an explicit renderer max_sampled_lod equal to count - 1")
+                size = tuple(component["target_size"])
+                for _ in range(mips["count"]):
+                    _require(all(n % cells == 0 and n // cells >= 4 for n, cells in zip(size, cfg["atlas_grid"])),
+                             f"{component_id}: each atlas mip must retain whole cells of at least 4x4")
+                    size = tuple(max(1, n // 2) for n in size)
+            else:
+                _require("max_sampled_lod" not in mips, f"{component_id}: max_sampled_lod is only for cell atlases")
         if processing_mode == "approved_rgba_resize":
             if "sampling_box" in cfg:
                 box = cfg["sampling_box"]

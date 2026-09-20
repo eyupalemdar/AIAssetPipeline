@@ -834,13 +834,19 @@ def resize_approved_rgba(
 
 def generate_approved_mips(image: Image.Image, size: tuple[int, int], count: int, **config: Any) -> list[Image.Image]:
     """Generate each level from the original pixels and one fixed sampling box."""
-    if type(count) is not int or not 2 <= count <= 16 or config.get("atlas_grid") is not None:
-        raise ValueError("Authored mips require 2..16 levels of standalone colour art; atlases stay NoMipmaps")
+    if type(count) is not int or not 2 <= count <= 16:
+        raise ValueError("Authored mips require 2..16 levels")
+    grid = config.get("atlas_grid")
+    if grid is not None and (len(grid) != 2 or any(type(v) is not int or v <= 0 for v in grid)):
+        raise ValueError("atlas_grid requires two positive integers")
     levels = []
     current_size = tuple(size)
     for index in range(count):
         if index and current_size == levels[-1].size:
             raise ValueError("Authored mip count extends beyond 1x1")
+        grid = config.get("atlas_grid")
+        if grid is not None and any(n % cells or n // cells < 4 for n, cells in zip(current_size, grid)):
+            raise ValueError("Atlas mips must retain whole cells of at least 4x4; reduce the mip count or align target cells")
         levels.append(resize_approved_rgba(image, current_size, **config))
         current_size = tuple(max(1, n // 2) for n in current_size)
     return levels

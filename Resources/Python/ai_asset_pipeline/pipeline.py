@@ -354,8 +354,8 @@ def _write_component(
             raise ValueError("approved_rgba_resize does not allow postprocess; approve/clean the source first")
         config = component.get("approved_rgba_resize", {})
         mip_settings = _resolved_ue_texture(spec, component)
-        if config.get("atlas_grid") and mip_settings["mip_gen"] not in {"NoMipmaps", "TMGS_NoMipmaps"}:
-            raise ValueError("Cell atlases require NoMipmaps; lower runtime tails would cross cell boundaries")
+        if config.get("atlas_grid") and not component.get("authored_mips") and mip_settings["mip_gen"] not in {"NoMipmaps", "TMGS_NoMipmaps"}:
+            raise ValueError("Cell atlases without authored mips require NoMipmaps")
         if component.get("authored_mips") and mip_settings["mip_gen"] not in {"LeaveExistingMips", "TMGS_LeaveExistingMips"}:
             raise ValueError("authored_mips requires LeaveExistingMips in the native import contract")
         runtime = resize_approved_rgba(selected, target_size, **config)
@@ -547,6 +547,13 @@ def _write_component(
         output.update(runtime_file=rel(root, dds_file), pipeline_png=rel(root, runtime_file),
                       source_mip_count=len(levels), source_mips=records,
                       dds_sha256=hashlib.sha256(dds_file.read_bytes()).hexdigest())
+        if component.get("approved_rgba_resize", {}).get("atlas_grid"):
+            output["atlas_mip_contract"] = {
+                "grid": list(component["approved_rgba_resize"]["atlas_grid"]),
+                "max_sampled_lod": component["authored_mips"]["max_sampled_lod"],
+                "renderer_clamp_required": True,
+                "engine_generated_tail_must_not_be_sampled": True,
+            }
     return output
 
 

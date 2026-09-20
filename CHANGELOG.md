@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.15 - 2026-09-20
+
+- Add opt-in cell-isolated authored atlas mips with whole-cell validation and
+  a required renderer maximum-LOD contract. Reject chains below 4x4 per cell.
+- Preserve existing no-mip atlas and standalone colour processing. Unreal may
+  append a smaller mip tail; material LOD clamping is explicitly required.
+- Add a packaging regression covering cell isolation, exported clamp metadata,
+  absent/mismatched clamp rejection and unsafe tail rejection.
+
 ## 0.1.12 - Elliptical Annulus Alpha Clip
 
 - Added opt-in `postprocess.ellipse_annulus_alpha_clip` for generated circular

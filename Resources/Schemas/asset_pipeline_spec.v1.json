@@ -143,7 +143,7 @@
         },
         "approved_source_target_size": { "$ref": "#/$defs/approvedSourceTargetSize" },
         "approved_rgba_resize": { "type": "object", "properties": { "sampling_box": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }, "rgb_dilation_iterations": { "type": "integer", "minimum": 0, "maximum": 64, "default": 8 }, "atlas_grid": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2} }, "additionalProperties": false },
-        "authored_mips": {"type": "object", "required": ["count"], "properties": {"count": {"type": "integer", "minimum": 2, "maximum": 16}}, "additionalProperties": false},
+        "authored_mips": {"type": "object", "required": ["count"], "properties": {"count": {"type": "integer", "minimum": 2, "maximum": 16}, "max_sampled_lod": {"type": "integer", "minimum": 1, "maximum": 15}}, "additionalProperties": false},
         "soft_glow_resize": {
           "type": "object",
           "properties": {

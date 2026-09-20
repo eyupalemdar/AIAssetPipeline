@@ -2188,6 +2188,33 @@ class AIAssetPipelineTests(unittest.TestCase):
 
 
 class ApprovedRGBAResizeTests(unittest.TestCase):
+    def test_atlas_authored_mips_preserve_cells_and_require_renderer_clamp(self):
+        from ai_asset_pipeline.image_ops import generate_approved_mips
+        source = Image.new("RGBA", (32, 16), (255, 0, 0, 255))
+        ImageDraw.Draw(source).rectangle((16, 0, 31, 15), fill=(0, 0, 255, 255))
+        for level in generate_approved_mips(source, (32, 16), 3, atlas_grid=(2, 1)):
+            pixels = np.asarray(level)
+            self.assertTrue(np.all(pixels[:, :level.width // 2] == (255, 0, 0, 255)))
+            self.assertTrue(np.all(pixels[:, level.width // 2:] == (0, 0, 255, 255)))
+        with self.assertRaises(ValueError):
+            generate_approved_mips(source, (32, 16), 4, atlas_grid=(2, 1))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); create_smoke_fixture(root)
+            path = next(root.rglob("*.aiasset.json")); spec = json.loads(path.read_text())
+            component = spec["components"][0]
+            component.update(processing_mode="approved_rgba_resize", selector={"type":"full_image_raw"},
+                             target_size=[32, 16], approved_rgba_resize={"atlas_grid":[2, 1]},
+                             authored_mips={"count":3, "max_sampled_lod":2},
+                             ue_texture={"mip_gen":"LeaveExistingMips", "filter":"Trilinear"})
+            path.write_text(json.dumps(spec))
+            result = package_spec(path, project_root=root)
+            item = json.loads((root/result["manifest"]).read_text())["outputs"][0]
+            self.assertEqual(item["atlas_mip_contract"]["max_sampled_lod"], 2)
+            self.assertEqual(item["source_mip_count"], 3)
+            for bad in ({"count":3}, {"count":3,"max_sampled_lod":3}, {"count":4,"max_sampled_lod":3}):
+                component["authored_mips"] = bad
+                with self.assertRaises(SpecError): validate_spec(spec, root)
+
     def test_atlas_cells_do_not_mix_even_without_padding(self):
         source = Image.new("RGBA", (16, 8), (255, 0, 0, 255))
         ImageDraw.Draw(source).rectangle((8, 0, 15, 7), fill=(0, 0, 255, 255))

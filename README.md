@@ -1,11 +1,26 @@
 # AIAssetPipeline
 
+## 0.1.15 — bounded atlas mip chains
+
+Cell atlases may opt into `authored_mips: {"count": 7, "max_sampled_lod": 6}`
+with `approved_rgba_resize.atlas_grid` and `LeaveExistingMips`. Each level is
+filtered from the original, independently per cell. All target levels must
+divide into whole cells with at least 4x4 pixels per cell. The manifest emits
+`atlas_mip_contract`; the consuming material MUST clamp its sampled LOD to the
+declared maximum because Unreal can append a lower tail that mixes cells.
+Use trilinear filtering and retain transparent space around glyphs within cells.
+Clamp UVs inside the selected cell by half a texel at `ceil(sampled LOD)` too;
+this keeps both trilinear footprints from reaching an adjacent cell at its edge.
+The explicit clamp is a renderer obligation, not something texture import can
+establish. No-mip atlases and standalone authored mips keep their existing behavior.
+
 ## 0.1.13 — reusable approved-pixel techniques
 
 - `approved_rgba_resize.atlas_grid: [columns, rows]` filters atlas cells
   independently, including transparent RGB bleed. Source/target dimensions must
-  divide into whole cells. The native profile must remain `NoMipmaps` because
-  engine-generated atlas tails could cross cell boundaries.
+  divide into whole cells. Without the explicit bounded-mip opt-in above, the
+  native profile remains `NoMipmaps` because engine-generated atlas tails could
+  cross cell boundaries.
 - Standalone colour components may declare `authored_mips: {"count": 3}` with
   `LeaveExistingMips`. Every level samples the original with the same continuous
   source box. Packaging writes a BGRA8 DDS, PNG preview and per-mip PNG/hash
