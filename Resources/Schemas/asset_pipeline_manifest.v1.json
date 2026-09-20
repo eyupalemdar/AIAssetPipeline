@@ -12,7 +12,7 @@
     "spec_file": { "type": "string", "minLength": 1 },
     "source_art": {
       "type": "array",
-      "items": { "type": "object", "additionalProperties": true }
+      "items": { "type": "object", "properties": {"sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}}, "additionalProperties": true }
     },
     "texture_package_path": { "type": "string" },
     "ue_import": { "type": "object", "additionalProperties": true },
@@ -39,6 +39,7 @@
           "atlas_mip_contract": {"type": "object", "required": ["grid", "max_sampled_lod", "renderer_clamp_required", "engine_generated_tail_must_not_be_sampled"], "properties": {"grid": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2}, "max_sampled_lod": {"type": "integer", "minimum": 1, "maximum": 15}, "renderer_clamp_required": {"const": true}, "engine_generated_tail_must_not_be_sampled": {"const": true}}, "additionalProperties": false},
           "source_mips": {"type": "array", "items": {"type": "object", "required": ["index", "size", "png", "sha256"], "additionalProperties": true}},
           "dds_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+          "runtime_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
           "runtime_asset_name": { "type": "string", "minLength": 1 },
           "ue_package_path": { "type": "string", "pattern": "^/Game/" },
           "ue_asset_name": { "type": "string", "minLength": 1 },

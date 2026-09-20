@@ -1,5 +1,18 @@
 # AIAssetPipeline
 
+## 0.1.16 — portable material sampling and native acceptance
+
+Explicit, project-owned sampling recipes now apply and verify bounded atlas
+LOD/UV guards and standalone mip bias through the editor. Source, runtime DDS/
+PNG, mip and manifest hashes are verified before use. The editor project must
+match; no fallback port, forced import or blind mutation retry is used.
+
+`AIWorkflowBootstrap doctor --strict` checks the versioned capability catalog.
+The separate `quality-smoke` command exercises packaging and optional native
+Slate rendering in an isolated engineering project. Bootstrap also distributes
+the generic minification recipe and material schema. Existing host overrides
+remain authoritative. Read [the complete workflow](Docs/IMAGE_QUALITY.md).
+
 ## 0.1.15 — bounded atlas mip chains
 
 Cell atlases may opt into `authored_mips: {"count": 7, "max_sampled_lod": 6}`

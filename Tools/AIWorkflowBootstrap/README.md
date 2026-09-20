@@ -1,5 +1,12 @@
 # AIWorkflowBootstrap
 
+Portable image quality is included: `doctor --strict` checks the installed
+capability catalog; `quality-smoke --project <project> --run <unique-name>`
+checks packaging. Add `--native --port <current-editor-port>` for explicit
+identity-checked UE import, material verification and native render acceptance.
+Follow `Plugins/AIAssetPipeline/Docs/IMAGE_QUALITY.md` for fixture cook exclusion
+and host approval/TSpec requirements. Installation and render results are separate.
+
 `AIWorkflowBootstrap` installs and updates the shared AI UI/asset workflow in
 another Unreal Engine project without manual file copying.
 

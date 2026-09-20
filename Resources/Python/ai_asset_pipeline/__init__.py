@@ -1,3 +1,3 @@
 """Provider-agnostic source art to UE-ready asset pipeline."""
 
-__version__ = "0.1.8"
+__version__ = "0.1.16"

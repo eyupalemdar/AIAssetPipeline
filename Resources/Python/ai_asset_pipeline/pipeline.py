@@ -221,6 +221,9 @@ def package_spec(
     if validate_only:
         return {"ok": True, "spec": rel(root, spec_path), "project_root": str(root), "warnings": warnings}
 
+    source_hashes = {str(item["id"]): hashlib.sha256(resolve_path(root, str(item["path"])).read_bytes()).hexdigest()
+                     for item in spec["source_art"]}
+
     runtime_dir = resolve_path(root, spec["runtime_output_dir"])
     review_dir = resolve_path(root, spec["review_output_dir"])
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -237,6 +240,8 @@ def package_spec(
     outputs.sort(key=lambda item: int(item["z_order"]))
     reviews = _write_reviews(root, spec, outputs, review_dir)
     manifest = _build_manifest(root, spec_path, spec, outputs, reviews)
+    if any(item["sha256"] != source_hashes[str(item["id"])] for item in manifest["source_art"]):
+        raise RuntimeError("A source changed during packaging; no successful manifest was written")
     manifest_warnings = validate_manifest(manifest)
     manifest_path = review_dir / str(spec.get("manifest_name", "ai_asset_pipeline_manifest.json"))
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -530,6 +535,7 @@ def _write_component(
         _component_diagnostics(runtime, spec, component),
         selector_info,
     )
+    output["source_art_id"] = str(component["source_art_id"])
     if component.get("authored_mips"):
         levels = generate_approved_mips(selected, target_size, component["authored_mips"]["count"],
                                         **component.get("approved_rgba_resize", {}))
@@ -2467,11 +2473,15 @@ def _build_manifest(
             raise RuntimeError(f"Expected {expected} components, generated {len(outputs)}")
 
     schema = str(spec.get("$schema", ""))
+    # Bind review/import artifacts to the exact bytes that were packaged.
+    for output in outputs:
+        output["runtime_sha256"] = hashlib.sha256(resolve_path(root, output["runtime_file"]).read_bytes()).hexdigest()
     source_art = []
     for item in spec.get("source_art", []):
         source_art.append(
             {
                 "id": item.get("id", ""),
+                "sha256": hashlib.sha256(resolve_path(root, str(item["path"])).read_bytes()).hexdigest(),
                 "path": rel(root, resolve_path(root, str(item.get("path", "")))),
                 "prompt_files": [
                     rel(root, resolve_path(root, str(path)))

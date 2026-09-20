@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.16 — 2026-09-20
+
+- Added explicit material sampling recipes with bounded atlas LOD/cell UV,
+  standalone bias, graph readback, resource dimensions and project identity guards.
+- Added source/runtime artifact hashes, capability discovery, bootstrap strict
+  capability checks and isolated packaging/native-render quality smoke.
+- Distributed model-neutral quality guidance and schema; retained host policies.
+- Reject sampling mutations during PIE and wait for cold placeholder texture
+  resources without accepting persistent resolution caps.
+
 ## 0.1.15 - 2026-09-20
 
 - Add opt-in cell-isolated authored atlas mips with whole-cell validation and

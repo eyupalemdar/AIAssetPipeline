@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Explicit project material sampling bindings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "manifest", "manifest_sha256", "materials"],
+  "properties": {
+    "$schema": {"const": "ai-material-sampling-v1"},
+    "manifest": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "notes": {"type": "string"},
+    "materials": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["asset", "samples"],
+        "properties": {
+          "asset": {"$ref": "#/$defs/asset"},
+          "source_asset": {"$ref": "#/$defs/asset"},
+          "samples": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["sample", "component", "bias"],
+              "properties": {
+                "sample": {"type": "string", "pattern": "^[A-Za-z0-9_]+$"},
+                "component": {"type": "string", "minLength": 1},
+                "uv": {"type": "string", "minLength": 1},
+                "uv_output": {"type": "string"},
+                "cell": {"type": "string", "minLength": 1},
+                "cell_output": {"const": "RGBA"},
+                "bias": {"type": "number"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {"asset": {"type": "string", "pattern": "^/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+$"}}
+}

@@ -318,6 +318,40 @@ class BootstrapTests(unittest.TestCase):
         self.assertGreater(payload["manifest"]["packages"][0]["fileCount"], 0)
         self.assertGreater(len(payload["manifest"]["fingerprint"]), 20)
 
+    def test_image_quality_is_distributed_and_capability_loss_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            code, _ = self.run_cli(["install", "--project", str(project), *self.source_args()])
+            self.assertEqual(code, 0)
+            recipe = project / "Docs/AI_UI_Transfer/component_recipes/UITexture_Minification.recipe.md"
+            self.assertTrue(recipe.is_file())
+            self.assertNotIn("ProjectOkey", recipe.read_text(encoding="utf-8"))
+            self.assertTrue((project / "Docs/AIAssetPipeline/Schemas/material_sampling.v1.json").is_file())
+            catalog = project / "Plugins/AIAssetPipeline/Resources/Capabilities/image_quality.v1.json"
+            data = json.loads(catalog.read_text(encoding="utf-8"))
+            del data["capabilities"]["bounded_atlas_sampling"]
+            catalog.write_text(json.dumps(data), encoding="utf-8")
+            code, payload = self.run_cli(["doctor", "--project", str(project), "--strict"])
+            self.assertEqual(code, 1)
+            capability = next(c for c in payload["checks"] if c["name"] == "image-quality-capabilities")
+            self.assertFalse(capability["ok"])
+
+    def test_custom_host_validator_runs_in_target_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self.make_project(Path(tmp))
+            scripts = project / 'Scripts'
+            scripts.mkdir()
+            (scripts / 'ValidateUITSpecs.ps1').write_text(
+                'param([string]$Root,[string]$SpecDirectory)\n'
+                'if ((Get-Location).Path -ne $Root) { throw "Wrong validator working directory" }\n'
+                'Write-Output "Host cwd preserved"\n', encoding='utf-8')
+            code, _ = self.run_cli(['install', '--project', str(project), *self.source_args(), '--adopt-existing'])
+            self.assertEqual(code, 0)
+            code, payload = self.run_cli(['doctor', '--project', str(project), '--strict'])
+            self.assertEqual(code, 0, payload)
+            validation = next(c for c in payload['checks'] if c['name'] == 'validate-tspecs')
+            self.assertIn('Host cwd preserved', validation['detail'])
+
 
 if __name__ == "__main__":
     unittest.main()

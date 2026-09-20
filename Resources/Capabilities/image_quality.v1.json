@@ -1,0 +1,21 @@
+{
+  "schema": "ai-image-quality-capabilities-v1",
+  "capabilities": {
+    "approved_rgba_resize": 1,
+    "cell_isolated_authored_mips": 1,
+    "native_texture_readback": 1,
+    "bounded_atlas_sampling": 1,
+    "sampling_graph_verification": 1,
+    "project_identity_guard": 1,
+    "quality_smoke": 1
+  },
+  "required_files": [
+    "Resources/Python/ai_asset_pipeline/image_ops.py",
+    "Resources/Python/ai_asset_pipeline/sampling.py",
+    "Resources/Python/ai_asset_pipeline/ue_sampling.py",
+    "Resources/Python/ai_asset_pipeline/quality.py",
+    "Resources/Python/ai_asset_pipeline/quality_smoke.py",
+    "Resources/Schemas/material_sampling.v1.json",
+    "Docs/IMAGE_QUALITY.md"
+  ]
+}

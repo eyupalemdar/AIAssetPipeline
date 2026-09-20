@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 TOOL_NAME = "AIWorkflowBootstrap"
-TOOL_VERSION = "0.1.7"
+TOOL_VERSION = "0.1.8"
 STATE_DIR = Path("Tools") / "AIWorkflowBootstrap" / "state"
 CONFIG_NAME = (STATE_DIR / "project.json").as_posix()
 LOCK_NAME = (STATE_DIR / "lock.json").as_posix()
@@ -1055,6 +1055,13 @@ def doctor(args: argparse.Namespace) -> int:
         checks.append(check(not changed_managed, "managed-files-unchanged", f"changed={len(changed_managed)}"))
 
     if args.strict:
+        if "AIAssetPipeline" in plugins:
+            capability_script = project_root / "Plugins/AIAssetPipeline/Resources/Python/ai_asset_pipeline/capabilities.py"
+            if capability_script.is_file():
+                capability_result = subprocess.run([sys.executable, str(capability_script)], cwd=project_root, capture_output=True, text=True, timeout=30)
+                checks.append(check(capability_result.returncode == 0, "image-quality-capabilities", capability_result.stdout.strip() or capability_result.stderr.strip()))
+            else:
+                checks.append(check(False, "image-quality-capabilities", "Missing portable image-quality implementation; update AIAssetPipeline."))
         checks.append(check(effective_config.get("productionMutationRequiresTSpec") is True, "policy-tspec-required", "productionMutationRequiresTSpec"))
         validator_path = project_root / str(effective_config["validatorPath"])
         if validator_path.is_file():
@@ -1068,6 +1075,7 @@ def doctor(args: argparse.Namespace) -> int:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                cwd=project_root,
             )
             checks.append(check(completed.returncode == 0, "validate-tspecs", completed.stdout.strip() or completed.stderr.strip()))
         else:
@@ -1076,6 +1084,17 @@ def doctor(args: argparse.Namespace) -> int:
     ok = all(item["ok"] for item in checks)
     emit({"ok": ok, "tool": TOOL_NAME, "projectRoot": str(project_root), "checks": checks})
     return 0 if ok else 1
+
+
+def quality_smoke(args: argparse.Namespace) -> int:
+    project_root, _ = find_uproject(args.project)
+    command = [sys.executable, str(project_root / "Plugins/AIAssetPipeline/Resources/Python/ai_asset_pipeline/cli.py"),
+               "quality-smoke", "--project-root", str(project_root), "--run", args.run]
+    if args.native:
+        if args.port is None:
+            raise BootstrapError("Native quality smoke requires an explicit current editor port.")
+        command += ["--native", "--port", str(args.port)]
+    return subprocess.run(command, cwd=project_root, check=False).returncode
 
 
 def validate_tspecs(args: argparse.Namespace) -> int:
@@ -1099,6 +1118,7 @@ def validate_tspecs(args: argparse.Namespace) -> int:
             capture_output=True,
             text=True,
             timeout=args.timeout_seconds,
+            cwd=project_root,
         )
         payload = {
             "ok": completed.returncode == 0,
@@ -1182,6 +1202,13 @@ def build_parser() -> argparse.ArgumentParser:
     diff_parser.add_argument("--dry-run", action="store_true", default=True)
     diff_parser.add_argument("--apply", action="store_true", default=False, help=argparse.SUPPRESS)
     diff_parser.set_defaults(func=lambda args: install_or_update(args, default_dry_run=True))
+
+    quality_parser = subparsers.add_parser("quality-smoke", help="Check portable image packaging and optionally native rendering.")
+    quality_parser.add_argument("--project", default=".")
+    quality_parser.add_argument("--run", required=True)
+    quality_parser.add_argument("--native", action="store_true")
+    quality_parser.add_argument("--port", type=int)
+    quality_parser.set_defaults(func=quality_smoke)
 
     doctor_parser = subparsers.add_parser("doctor", help="Validate a project install.")
     doctor_parser.add_argument("--project", default=".", help="Target UE project root or .uproject path.")

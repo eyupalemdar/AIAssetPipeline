@@ -11,11 +11,15 @@ if __package__ in (None, ""):
     from ai_asset_pipeline.smoke import create_smoke_fixture
     from ai_asset_pipeline.tspec import validate_tspec_links
     from ai_asset_pipeline.ue_import import import_manifest, plan_import
+    from ai_asset_pipeline.sampling import CAPABILITIES, load_recipe
+    from ai_asset_pipeline.quality import run_sampling
 else:
     from .pipeline import package_spec, validate_manifest_file
     from .smoke import create_smoke_fixture
     from .tspec import validate_tspec_links
     from .ue_import import import_manifest, plan_import
+    from .sampling import CAPABILITIES, load_recipe
+    from .quality import run_sampling
 
 
 def _add_project_root(parser: argparse.ArgumentParser) -> None:
@@ -58,9 +62,36 @@ def main() -> int:
     smoke_cmd.add_argument("--output-dir", default="Docs/AIAssetPipeline/Smoke")
     _add_project_root(smoke_cmd)
 
+    sub.add_parser("capabilities", help="Report versioned portable pipeline capabilities.")
+    sampling_cmd = sub.add_parser("validate-sampling", help="Validate recipe, source/output hashes and mip policy without UE.")
+    sampling_cmd.add_argument("recipe", type=Path)
+    sampling_cmd.add_argument("--project-root", type=Path, required=True)
+    native_cmd = sub.add_parser("ue-sampling", help="Verify explicit material bindings; opt in to apply/save/import.")
+    native_cmd.add_argument("recipe", type=Path)
+    native_cmd.add_argument("--project-root", type=Path, required=True)
+    native_cmd.add_argument("--port", type=int, required=True)
+    native_cmd.add_argument("--apply", action="store_true")
+    native_cmd.add_argument("--save", action="store_true")
+    native_cmd.add_argument("--import-textures", action="store_true")
+    quality_cmd = sub.add_parser("quality-smoke", help="Create and validate an isolated engineering fixture; optional native render.")
+    quality_cmd.add_argument("--project-root", type=Path, required=True)
+    quality_cmd.add_argument("--run", required=True)
+    quality_cmd.add_argument("--port", type=int)
+    quality_cmd.add_argument("--native", action="store_true")
+
     args = parser.parse_args()
     try:
-        if args.command == "validate-spec":
+        if args.command == "capabilities":
+            result = {"ok": True, "capabilities": CAPABILITIES}
+        elif args.command == "validate-sampling":
+            recipe, manifest, outputs = load_recipe(args.recipe, args.project_root)
+            result = {"ok": True, "materials": len(recipe["materials"]), "components": len(outputs), "native_verified": False}
+        elif args.command == "ue-sampling":
+            result = run_sampling(args.recipe, args.project_root, args.port, args.apply, args.save, args.import_textures)
+        elif args.command == "quality-smoke":
+            from ai_asset_pipeline.quality_smoke import run_quality_smoke
+            result = run_quality_smoke(args.project_root, args.run, args.port, args.native)
+        elif args.command == "validate-spec":
             result = package_spec(args.spec, validate_only=True, project_root=args.project_root)
         elif args.command == "package":
             result = package_spec(args.spec, project_root=args.project_root)
