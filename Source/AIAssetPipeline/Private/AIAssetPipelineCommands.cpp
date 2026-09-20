@@ -19,6 +19,15 @@
 #include "Serialization/JsonSerializer.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
+#include "Editor.h"
+#include "Blueprint/SlateBlueprintLibrary.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/PanelWidget.h"
+#include "Components/RetainerBox.h"
+#include "Components/Image.h"
+#include "Engine/World.h"
 
 namespace AIAssetPipeline::Commands
 {
@@ -566,6 +575,8 @@ FString HandleStatus(TSharedPtr<FJsonObject> Params)
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("AIAssetPipeline"));
 	Data->SetStringField(TEXT("version"), Plugin.IsValid() ? Plugin->GetDescriptor().VersionName : TEXT("unknown"));
 	Data->SetBoolField(TEXT("authored_mips_supported"), true);
+	Data->SetBoolField(TEXT("widget_pixel_footprints_supported"), true);
+	Data->SetBoolField(TEXT("widget_geometry_only_supported"), true);
 	Data->SetStringField(TEXT("plugin_dir"), FAIAssetPipelineModule::GetPluginDir());
 	Data->SetStringField(TEXT("python_dir"), FAIAssetPipelineModule::GetPythonDir());
 	Data->SetStringField(TEXT("schemas_dir"), FAIAssetPipelineModule::GetSchemasDir());
@@ -632,5 +643,103 @@ FString HandleVerifyAssets(TSharedPtr<FJsonObject> Params)
 	{
 		return CreateSuccessResponse(BuildVerifyResult(Manifest));
 	}, TEXT("AIAssetPipeline asset verification timed out"), 120.0);
+}
+
+FString HandleMeasureWidgets(TSharedPtr<FJsonObject> Params)
+{
+	FString ClassPath;
+	const TArray<TSharedPtr<FJsonValue>>* Bindings = nullptr;
+	if (!ReadString(Params, TEXT("widget_class"), ClassPath) || !ClassPath.StartsWith(TEXT("/Game/"))
+		|| !Params->TryGetArrayField(TEXT("components"), Bindings) || !Bindings || Bindings->IsEmpty() || Bindings->Num() > 256)
+	{
+		return CreateErrorResponse(TEXT("Expected explicit /Game widget_class and 1..256 component bindings"));
+	}
+	return RunOnGameThread([Params, ClassPath]()
+	{
+		UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
+		if (!World || World->WorldType != EWorldType::PIE)
+			return CreateErrorResponse(TEXT("An active, settled PIE viewport is required"));
+		UClass* Class = LoadClass<UUserWidget>(nullptr, *ClassPath);
+		if (!Class) return CreateErrorResponse(TEXT("Widget class could not be loaded"));
+		TArray<UUserWidget*> Owners;
+		UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, Owners, Class, false);
+		if (Owners.IsEmpty()) return CreateErrorResponse(TEXT("No live widget instances for the requested class"));
+		const FVector2D Viewport = UWidgetLayoutLibrary::GetViewportSize(World);
+		if (Viewport.X <= 0 || Viewport.Y <= 0) return CreateErrorResponse(TEXT("PIE viewport is not arranged"));
+		auto Pair = [](double X, double Y)
+		{
+			return TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(X), MakeShared<FJsonValueNumber>(Y)};
+		};
+		TArray<TSharedPtr<FJsonValue>> Samples;
+		int32 VisibleCount = 0;
+		for (UUserWidget* Owner : Owners)
+		{
+			for (const TSharedPtr<FJsonValue>& Value : Params->GetArrayField(TEXT("components")))
+			{
+				const TSharedPtr<FJsonObject>* BindingPtr = nullptr;
+				if (!Value->TryGetObject(BindingPtr) || !BindingPtr) return CreateErrorResponse(TEXT("Invalid component binding"));
+				const TSharedPtr<FJsonObject> Binding = *BindingPtr;
+				FString Component, Sampling;
+				const TArray<TSharedPtr<FJsonValue>>* Names = nullptr;
+				if (!ReadString(Binding, TEXT("component"), Component) || !ReadString(Binding, TEXT("sampling"), Sampling)
+					|| (Sampling != TEXT("full_uv") && Sampling != TEXT("geometry_only")) || !Binding->TryGetArrayField(TEXT("widgets"), Names)
+					|| !Names || Names->IsEmpty() || Names->Num() > 64)
+					return CreateErrorResponse(TEXT("Component requires full_uv or geometry_only and explicit widget names"));
+				for (const TSharedPtr<FJsonValue>& NameValue : *Names)
+				{
+					FString Name;
+					if (!NameValue->TryGetString(Name)) return CreateErrorResponse(TEXT("Widget name must be a string"));
+					UWidget* Widget = Owner->GetWidgetFromName(FName(*Name));
+					if (!Widget) return CreateErrorResponse(TEXT("Widget not found: ") + Name);
+					const UImage* Image = Cast<UImage>(Widget);
+					if (Sampling == TEXT("full_uv") && (!Image || Image->GetBrush().DrawAs != ESlateBrushDrawType::Image
+						|| Image->GetBrush().Tiling != ESlateBrushTileType::NoTile
+						|| FBox2f(Image->GetBrush().GetUVRegion()).bIsValid))
+						return CreateErrorResponse(TEXT("Widget is not an untiled full-UV Image; bind its sampling regions separately: ") + Name);
+					bool bVisible = true, bIntermediate = false;
+					UWidget* Cursor = Widget;
+					int32 Depth = 0;
+					for (; Cursor && Depth < 100; ++Depth)
+					{
+						bVisible &= Cursor->IsVisible() && Cursor->GetRenderOpacity() > 0;
+						bIntermediate |= Cast<URetainerBox>(Cursor) != nullptr;
+						Cursor = Cursor->GetParent() ? static_cast<UWidget*>(Cursor->GetParent()) : Cursor->GetTypedOuter<UUserWidget>();
+					}
+					if (Cursor) return CreateErrorResponse(TEXT("Unresolved widget ancestor chain"));
+					// Keep FGeometry entirely in native code; do not round-trip it through Python reflection.
+					const FGeometry& Geometry = Widget->GetCachedGeometry();
+					const FVector2D Local = Geometry.GetLocalSize();
+					FVector2D Origin, XEnd, YEnd, Unused;
+					USlateBlueprintLibrary::LocalToViewport(World, Geometry, FVector2D::ZeroVector, Origin, Unused);
+					USlateBlueprintLibrary::LocalToViewport(World, Geometry, FVector2D(Local.X, 0), XEnd, Unused);
+					USlateBlueprintLibrary::LocalToViewport(World, Geometry, FVector2D(0, Local.Y), YEnd, Unused);
+					const FVector2D Pixels((XEnd - Origin).Size(), (YEnd - Origin).Size());
+					const bool bPainted = Pixels.X > 0 && Pixels.Y > 0 && FMath::IsFinite(Pixels.X) && FMath::IsFinite(Pixels.Y);
+					bVisible &= bPainted;
+					VisibleCount += bVisible ? 1 : 0;
+					TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+					Row->SetStringField(TEXT("component"), Component);
+					Row->SetStringField(TEXT("widget"), Widget->GetPathName());
+					Row->SetStringField(TEXT("owner"), Owner->GetPathName());
+					Row->SetStringField(TEXT("sampling"), Sampling);
+					Row->SetBoolField(TEXT("visible"), bVisible);
+					Row->SetBoolField(TEXT("painted"), bPainted);
+					Row->SetBoolField(TEXT("intermediate_render_target"), bIntermediate);
+					Row->SetArrayField(TEXT("pixel_size"), Pair(Pixels.X, Pixels.Y));
+					Row->SetArrayField(TEXT("local_size"), Pair(Local.X, Local.Y));
+					Row->SetArrayField(TEXT("pixel_origin"), Pair(Origin.X, Origin.Y));
+					Samples.Add(MakeShared<FJsonValueObject>(Row));
+				}
+			}
+		}
+		if (VisibleCount == 0) return CreateErrorResponse(TEXT("No visible painted samples; settle the intended PIE screen"));
+		TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+		Data->SetBoolField(TEXT("ok"), true);
+		Data->SetStringField(TEXT("method"), TEXT("ue_local_to_viewport"));
+		Data->SetStringField(TEXT("project_file"), FPaths::GetCleanFilename(FPaths::GetProjectFilePath()));
+		Data->SetArrayField(TEXT("viewport_pixels"), Pair(Viewport.X, Viewport.Y));
+		Data->SetArrayField(TEXT("samples"), Samples);
+		return CreateSuccessResponse(Data);
+	}, TEXT("AIAssetPipeline widget measurement timed out"), 30.0);
 }
 }

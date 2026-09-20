@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.17 — 2026-09-20
+
+- Added native read-only widget footprint measurement in physical viewport pixels.
+- Added explicit geometry-only measurement for composite/rounded widgets;
+  automatic standalone sizing rejects it pending a renderer-specific UV audit.
+- Added measured standalone texture sizing with source/layout/evidence hash pins,
+  source and platform limits, explicit sampling headroom, payload budget and
+  separate review candidate specs. Unmeasured states cannot pass coverage.
+- Kept original sources, authored mip sampling, production selection and device
+  resolution policies independent; candidates never replace production implicitly.
+
 ## 0.1.16 — 2026-09-20
 
 - Added explicit material sampling recipes with bounded atlas LOD/cell UV,

@@ -1,5 +1,11 @@
 # AIAssetPipeline
 
+## 0.1.17 — measured texture sizing
+
+Native `measure-widget-pixels` and `plan-density` use actual viewport pixels
+to plan standalone approved RGBA derivatives. See [the density workflow](Docs/TEXTURE_DENSITY.md)
+for evidence, headroom, source/platform limits and separate candidate generation.
+
 ## 0.1.16 — portable material sampling and native acceptance
 
 Explicit, project-owned sampling recipes now apply and verify bounded atlas

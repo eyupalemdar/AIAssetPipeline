@@ -11,6 +11,7 @@ namespace AIAssetPipeline::Commands
 FString HandleStatus(TSharedPtr<FJsonObject> Params);
 FString HandleImportManifest(TSharedPtr<FJsonObject> Params);
 FString HandleVerifyAssets(TSharedPtr<FJsonObject> Params);
+FString HandleMeasureWidgets(TSharedPtr<FJsonObject> Params);
 }
 
 DEFINE_LOG_CATEGORY(LogAIAssetPipeline);
@@ -91,6 +92,10 @@ void FAIAssetPipelineModule::RegisterMcpCommands()
 	Registrations.Add({
 		MakeDescriptor(TEXT("asset_pipeline_verify_assets"), true, false, 120, TEXT("read"), false),
 		[](TSharedPtr<FJsonObject> Params) { return AIAssetPipeline::Commands::HandleVerifyAssets(Params); }
+	});
+	Registrations.Add({
+		MakeDescriptor(TEXT("asset_pipeline_measure_widgets"), true, false, 30, TEXT("read"), false),
+		[](TSharedPtr<FJsonObject> Params) { return AIAssetPipeline::Commands::HandleMeasureWidgets(Params); }
 	});
 
 	for (FRegistration& Registration : Registrations)

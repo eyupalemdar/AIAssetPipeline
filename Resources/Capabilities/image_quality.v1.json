@@ -7,7 +7,8 @@
     "bounded_atlas_sampling": 1,
     "sampling_graph_verification": 1,
     "project_identity_guard": 1,
-    "quality_smoke": 1
+    "quality_smoke": 1,
+    "measured_texture_density": 1
   },
   "required_files": [
     "Resources/Python/ai_asset_pipeline/image_ops.py",
@@ -15,6 +16,9 @@
     "Resources/Python/ai_asset_pipeline/ue_sampling.py",
     "Resources/Python/ai_asset_pipeline/quality.py",
     "Resources/Python/ai_asset_pipeline/quality_smoke.py",
+    "Resources/Python/ai_asset_pipeline/density.py",
+    "Docs/TEXTURE_DENSITY.md",
+    "Resources/Schemas/texture_density.v1.json",
     "Resources/Schemas/material_sampling.v1.json",
     "Docs/IMAGE_QUALITY.md"
   ]

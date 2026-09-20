@@ -22,6 +22,8 @@ public class AIAssetPipeline : ModuleRules
 		{
 			"AssetRegistry",
 			"Projects",
+			"UMG",
+			"SlateCore",
 			"UnrealEd"
 		});
 	}

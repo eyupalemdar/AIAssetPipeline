@@ -16,6 +16,7 @@ CAPABILITIES = {
     "sampling_graph_verification": 1,
     "project_identity_guard": 1,
     "quality_smoke": 1,
+    "measured_texture_density": 1,
 }
 LOD_CODE = """float2 dx = ddx(UV) * TextureSize;
 float2 dy = ddy(UV) * TextureSize;

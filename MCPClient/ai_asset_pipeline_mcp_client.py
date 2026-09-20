@@ -126,5 +126,19 @@ def asset_pipeline_verify_assets(manifest_path: str, project_root: str = "") -> 
     return _format(_send("asset_pipeline_verify_assets", {"manifest_path": manifest_path}, project_root=project_root))
 
 
+@mcp.tool()
+def asset_pipeline_measure_widget_pixels(bindings_path: str, project_root: str, port: int, scenario: str) -> str:
+    """Read native physical footprints in an already-running owned PIE screen."""
+    from ai_asset_pipeline.density import measure_widgets
+    return _format(measure_widgets(bindings_path, project_root, port, scenario))
+
+
+@mcp.tool()
+def asset_pipeline_plan_density(policy_path: str, project_root: str, output_dir: str) -> str:
+    """Write a separate review candidate; never promote or modify production assets."""
+    from ai_asset_pipeline.density import write_density_plan
+    return _format(write_density_plan(policy_path, project_root, output_dir))
+
+
 if __name__ == "__main__":
     mcp.run()

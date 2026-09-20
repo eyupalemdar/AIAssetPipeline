@@ -79,10 +79,26 @@ def main() -> int:
     quality_cmd.add_argument("--port", type=int)
     quality_cmd.add_argument("--native", action="store_true")
 
+    density_cmd = sub.add_parser("plan-density", help="Plan review textures from approved originals and native pixel footprints.")
+    density_cmd.add_argument("policy", type=Path)
+    density_cmd.add_argument("--project-root", type=Path, required=True)
+    density_cmd.add_argument("--output-dir", type=Path, required=True)
+    footprint_cmd = sub.add_parser("measure-widget-pixels", help="Read settled live PIE widget footprints in physical viewport pixels.")
+    footprint_cmd.add_argument("bindings", type=Path)
+    footprint_cmd.add_argument("--project-root", type=Path, required=True)
+    footprint_cmd.add_argument("--port", type=int, required=True)
+    footprint_cmd.add_argument("--scenario", required=True)
+
     args = parser.parse_args()
     try:
         if args.command == "capabilities":
             result = {"ok": True, "capabilities": CAPABILITIES}
+        elif args.command == "plan-density":
+            from ai_asset_pipeline.density import write_density_plan
+            result = write_density_plan(args.policy, args.project_root, args.output_dir)
+        elif args.command == "measure-widget-pixels":
+            from ai_asset_pipeline.density import measure_widgets
+            result = measure_widgets(args.bindings, args.project_root, args.port, args.scenario)
         elif args.command == "validate-sampling":
             recipe, manifest, outputs = load_recipe(args.recipe, args.project_root)
             result = {"ok": True, "materials": len(recipe["materials"]), "components": len(outputs), "native_verified": False}
