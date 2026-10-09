@@ -582,7 +582,7 @@ def ensure_uproject_plugins(data: dict[str, Any], plugins: list[str]) -> tuple[d
                     "Name": plugin_name,
                     "Enabled": True,
                     "TargetAllowList": ["Editor"],
-                    "SupportedTargetPlatforms": ["Win64", "Linux"],
+                    "SupportedTargetPlatforms": ["Win64", "Mac", "Linux"],
                 }
             )
             changed = True
@@ -591,7 +591,7 @@ def ensure_uproject_plugins(data: dict[str, Any], plugins: list[str]) -> tuple[d
         desired_fields = {
             "Enabled": True,
             "TargetAllowList": ["Editor"],
-            "SupportedTargetPlatforms": ["Win64", "Linux"],
+            "SupportedTargetPlatforms": ["Win64", "Mac", "Linux"],
         }
         for key, value in desired_fields.items():
             if entry.get(key) != value:

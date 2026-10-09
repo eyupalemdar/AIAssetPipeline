@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Preserve Mac editor support when the workflow bootstrap creates or updates
+  MCPToolkit and AIAssetPipeline project entries. The editor-only target restriction
+  remains in effect on Windows, Mac and Linux.
+
 ## 0.1.17 — 2026-09-20
 
 - Added native read-only widget footprint measurement in physical viewport pixels.

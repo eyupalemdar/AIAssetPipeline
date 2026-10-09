@@ -13,6 +13,20 @@ import bootstrap
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_new_plugin_entries_include_mac_and_remain_editor_only(self) -> None:
+        data, changed = bootstrap.ensure_uproject_plugins({"Plugins": []}, ["MCPToolkit", "AIAssetPipeline"])
+        self.assertTrue(changed)
+        for entry in data["Plugins"]:
+            self.assertEqual(entry["SupportedTargetPlatforms"], ["Win64", "Mac", "Linux"])
+            self.assertEqual(entry["TargetAllowList"], ["Editor"])
+
+    def test_existing_mac_entry_is_not_rewritten_to_windows_linux(self) -> None:
+        original = {"Plugins": [{"Name": "MCPToolkit", "Enabled": True,
+            "TargetAllowList": ["Editor"], "SupportedTargetPlatforms": ["Win64", "Mac", "Linux"]}]}
+        data, changed = bootstrap.ensure_uproject_plugins(original, ["MCPToolkit"])
+        self.assertFalse(changed)
+        self.assertIn("Mac", data["Plugins"][0]["SupportedTargetPlatforms"])
+
     def setUp(self) -> None:
         self.source_root = Path(__file__).resolve().parents[2]
         self.asset_source_root = self.resolve_asset_source_root()
